@@ -1,0 +1,8 @@
+/target/
+/.venv/
+/recordings/
+/.model-cache/
+__pycache__/
+/.language
+/.recordings-directory
+/dist/

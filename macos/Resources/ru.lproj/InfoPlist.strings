@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Распознавание речи";
+"CFBundleName" = "Распознавание речи";
+"NSMicrophoneUsageDescription" = "Микрофон нужен для записи речи и её преобразования в текст.";
