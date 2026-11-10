@@ -25,11 +25,33 @@ struct Source {
 }
 
 impl SpeechModel {
+    pub const ALL: [Self; 3] = [Self::Tone, Self::GigaAm, Self::Parakeet];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Tone => "t-one",
+            Self::GigaAm => "gigaam-v3",
+            Self::Parakeet => "parakeet-v3-int8",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Tone => "T-one",
             Self::GigaAm => "GigaAM-v3",
             Self::Parakeet => "Parakeet v3 INT8",
+        }
+    }
+
+    pub fn download_size_mb(self) -> u64 {
+        let bytes: u64 = self.source().assets.iter().map(|asset| asset.size).sum();
+        (bytes + 500_000) / 1_000_000
+    }
+
+    pub fn languages_summary(self) -> String {
+        match self {
+            Self::Tone | Self::GigaAm => t!("model_languages_russian").into_owned(),
+            Self::Parakeet => t!("model_languages_parakeet_summary").into_owned(),
         }
     }
 
@@ -99,14 +121,18 @@ impl SpeechModel {
             .then_some(directory)
     }
 
-    pub fn prepare(self, cache: &Path) -> Result<PathBuf> {
+    pub fn prepare(self, cache: &Path, report: impl Fn(u64, u64)) -> Result<PathBuf> {
         let source = self.source();
         let directory = source.cache_directory(cache);
-        for asset in source.assets {
+        let missing: Vec<_> = source
+            .assets
+            .iter()
+            .filter(|asset| !asset.is_cached(&directory))
+            .collect();
+        let total = missing.iter().map(|asset| asset.size).sum();
+        let mut completed = 0;
+        for asset in missing {
             let path = directory.join(asset.name);
-            if asset.is_cached(&directory) {
-                continue;
-            }
             std::fs::create_dir_all(&directory)?;
             let base = std::env::var("SPEECH_MODEL_BASE_URL")
                 .unwrap_or_else(|_| "https://huggingface.co".into());
@@ -117,9 +143,14 @@ impl SpeechModel {
                 source.revision,
                 asset.name
             );
-            asset.download(&url, &directory, &path).with_context(|| {
-                t!("download_failed", model = self.label(), file = asset.name).into_owned()
-            })?;
+            asset
+                .download(&url, &directory, &path, |bytes| {
+                    report(completed + bytes, total)
+                })
+                .with_context(|| {
+                    t!("download_failed", model = self.label(), file = asset.name).into_owned()
+                })?;
+            completed += asset.size;
         }
         Ok(directory)
     }
@@ -142,7 +173,13 @@ impl Asset {
             .is_ok_and(|meta| meta.is_file() && meta.len() == self.size)
     }
 
-    fn download(&self, url: &str, directory: &Path, path: &Path) -> Result<()> {
+    fn download(
+        &self,
+        url: &str,
+        directory: &Path,
+        path: &Path,
+        report: impl Fn(u64),
+    ) -> Result<()> {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(20)))
             .timeout_global(Some(Duration::from_secs(30 * 60)))
@@ -162,6 +199,7 @@ impl Asset {
             digest.update(&buffer[..count]);
             file.write_all(&buffer[..count])?;
             length += count as u64;
+            report(length.min(self.size));
         }
         ensure!(length == self.size, t!("model_size_mismatch").into_owned());
         ensure!(

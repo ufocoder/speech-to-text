@@ -1,3 +1,5 @@
+use crate::models::SpeechModel;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 fn app_data_dir() -> PathBuf {
@@ -88,7 +90,7 @@ pub fn model_cache() -> PathBuf {
         .unwrap_or_else(|| app_data_dir().join(".model-cache").join("hub"))
 }
 
-pub fn transcript_path(audio: &Path) -> PathBuf {
+fn transcript_path(audio: &Path) -> PathBuf {
     let mut path = audio.as_os_str().to_owned();
     path.push(".txt");
     PathBuf::from(path)
@@ -100,48 +102,69 @@ fn transcript_model_path(audio: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
-pub fn transcript_model(audio: &Path) -> Option<String> {
+fn transcript_model(audio: &Path) -> Option<String> {
     std::fs::read_to_string(transcript_model_path(audio))
         .ok()
         .map(|model| model.trim().to_owned())
         .filter(|model| !model.is_empty())
 }
 
-pub fn save_transcript(
-    audio: &Path,
-    directory: &Path,
-    text: &str,
-    model: &str,
-) -> std::io::Result<()> {
+pub type Transcripts = BTreeMap<Option<String>, String>;
+
+fn model_transcript_path(audio: &Path, model: SpeechModel) -> PathBuf {
+    let mut path = audio.as_os_str().to_owned();
+    path.push(format!(".{}.txt", model.id()));
+    path.into()
+}
+
+pub fn transcript_files(audio: &Path) -> BTreeMap<Option<String>, PathBuf> {
+    let mut files = BTreeMap::new();
+    let legacy = transcript_path(audio);
+    if legacy.is_file() {
+        files.insert(transcript_model(audio), legacy);
+    }
+    for model in SpeechModel::ALL {
+        let path = model_transcript_path(audio, model);
+        if path.is_file() {
+            files.insert(Some(model.label().to_owned()), path);
+        }
+    }
+    files
+}
+
+pub fn read_transcripts(audio: &Path) -> Transcripts {
+    transcript_files(audio)
+        .into_iter()
+        .filter_map(|(model, path)| std::fs::read_to_string(path).ok().map(|text| (model, text)))
+        .collect()
+}
+
+pub fn save_transcript(audio: &Path, text: &str, model: SpeechModel) -> std::io::Result<()> {
     use std::io::Write;
 
-    let Some(parent) = audio.parent() else {
-        return Ok(());
-    };
-    if parent
-        .canonicalize()
-        .ok()
-        .zip(directory.canonicalize().ok())
-        .is_none_or(|(parent, recordings)| parent != recordings)
-    {
-        return Ok(());
-    }
+    let parent = audio
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
     file.write_all(text.as_bytes())?;
-    let model_path = transcript_model_path(audio);
-    let mut metadata = tempfile::NamedTempFile::new_in(parent)?;
-    metadata.write_all(model.as_bytes())?;
-
-    // If updating an existing result fails halfway, show an unknown model
-    // instead of attributing the new text to the previous model.
-    match std::fs::remove_file(&model_path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    file.persist(transcript_path(audio))?;
-    metadata.persist(model_path)?;
+    file.persist(model_transcript_path(audio, model))?;
     Ok(())
+}
+
+pub fn delete_transcripts(audio: &Path) -> std::io::Result<()> {
+    let mut first_error = None;
+    for path in [transcript_path(audio), transcript_model_path(audio)]
+        .into_iter()
+        .chain(SpeechModel::ALL.map(|model| model_transcript_path(audio, model)))
+    {
+        if let Err(error) = std::fs::remove_file(path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            first_error.get_or_insert(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 pub fn language_file() -> PathBuf {

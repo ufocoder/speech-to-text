@@ -1,13 +1,12 @@
 use super::Recorder;
 use crate::{
     i18n::Message,
-    storage::{SavedRecording, saved_recordings, transcript_model, transcript_path},
+    storage::{SavedRecording, delete_transcripts, saved_recordings, transcript_files},
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
     ActiveTheme, Disableable, Sizable,
     button::{Button, ButtonVariants},
-    input::{Textarea, TextareaState},
 };
 use gpui_kit::{prelude::*, *};
 use rust_i18n::t;
@@ -23,7 +22,6 @@ impl Recorder {
             .disabled(self.loading_audio || self.choosing_file || self.recording.is_some())
             .on_click(cx.listener(|this, _, _, cx| {
                 this.settings_open = false;
-                this.saved_text = None;
                 this.refresh_recordings(cx);
             }))
     }
@@ -49,7 +47,7 @@ impl Recorder {
             .py_2()
             .bg(cx.theme().muted)
             .child(div().flex_1().child(t!("file").into_owned()))
-            .child(div().w(px(300.)).child(t!("actions").into_owned()));
+            .child(div().w(px(180.)).child(t!("actions").into_owned()));
         let rows = match recordings {
             Ok(paths) if paths.is_empty() => div()
                 .p_3()
@@ -72,15 +70,42 @@ impl Recorder {
                     );
                     let open = path.clone();
                     let delete = path.clone();
-                    let read = path.clone();
-                    let has_text = transcript_path(path).is_file();
-                    let result = if has_text {
-                        let model = transcript_model(path)
-                            .unwrap_or_else(|| t!("unknown_transcript_model").into_owned());
-                        t!("saved_transcript_model", model = model).into_owned()
-                    } else {
-                        t!("no_saved_transcript").into_owned()
-                    };
+                    let models = transcript_files(path);
+                    let badges = div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_1()
+                        .mt_1()
+                        .when(models.is_empty(), |row| {
+                            row.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t!("no_saved_transcript").into_owned()),
+                            )
+                        })
+                        .children(models.into_keys().enumerate().map(|(model_index, model)| {
+                            let source = path.clone();
+                            let label = model
+                                .clone()
+                                .unwrap_or_else(|| t!("unknown_transcript_model").into_owned());
+                            Button::new(SharedString::from(format!(
+                                "archive-transcript-{index}-{model_index}"
+                            )))
+                            .xsmall()
+                            .label(label)
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.saved_recordings = None;
+                                    this.load_audio_with_transcript(
+                                        source.clone(),
+                                        Some(model.clone()),
+                                        window,
+                                        cx,
+                                    );
+                                },
+                            ))
+                        }));
                     div()
                         .flex()
                         .items_center()
@@ -100,17 +125,11 @@ impl Recorder {
                                         .text_color(cx.theme().muted_foreground)
                                         .child(recorded_at),
                                 )
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(result),
-                                ),
+                                .child(badges),
                         )
                         .child(
                             div()
-                                .w(px(300.))
+                                .w(px(180.))
                                 .flex_shrink_0()
                                 .flex()
                                 .gap_2()
@@ -125,19 +144,10 @@ impl Recorder {
                                         })),
                                 )
                                 .child(
-                                    Button::new(("read-recording", index))
-                                        .small()
-                                        .label(t!("text").into_owned())
-                                        .disabled(!has_text)
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.open_saved_text(&read, window, cx);
-                                        })),
-                                )
-                                .child(
                                     Button::new(("delete-recording", index))
                                         .small()
                                         .label(t!("delete").into_owned())
-                                        .disabled(self.recognition_path.as_ref() == Some(path))
+                                        .disabled(self.recognition_model_for(path).is_some())
                                         .on_click(cx.listener(move |this, _, window, cx| {
                                             this.confirm_delete(delete.clone(), window, cx);
                                         })),
@@ -169,66 +179,6 @@ impl Recorder {
             )
     }
 
-    fn open_saved_text(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
-        match std::fs::read_to_string(transcript_path(path)) {
-            Ok(text) => {
-                let state = cx.new(|cx| {
-                    TextareaState::new(window, cx)
-                        .default_value(text)
-                        .placeholder(t!("no_speech").into_owned())
-                });
-                self.saved_text = Some((file_name(path), state));
-                cx.notify();
-            }
-            Err(error) => {
-                drop(window.prompt(
-                    PromptLevel::Warning,
-                    &t!("open_text_failed"),
-                    Some(&error.to_string()),
-                    &[t!("ok").as_ref()],
-                    cx,
-                ));
-                self.refresh_recordings(cx);
-            }
-        }
-    }
-
-    pub(super) fn saved_text_view(
-        &self,
-        name: &str,
-        text: &Entity<TextareaState>,
-        cx: &Context<Self>,
-    ) -> Div {
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .p_6()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(div().min_w_0().truncate().text_xl().child(name.to_owned()))
-                    .child(
-                        Button::new("close-saved-text")
-                            .label(t!("back_to_recordings").into_owned())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.saved_text = None;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(Textarea::new(text).h(relative(1.)).readonly(true)),
-            )
-    }
-
     fn confirm_delete(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         let detail = t!("delete_detail", detail = file_name(&path)).into_owned();
         let answer = window.prompt(
@@ -242,31 +192,39 @@ impl Recorder {
             if answer.await.ok() != Some(1) {
                 return;
             }
-            let _ = this.update_in(cx, |this, window, cx| match std::fs::remove_file(&path) {
-                Ok(()) => {
-                    if this.audio_path.as_ref() == Some(&path) {
-                        this.clear_audio(window, cx);
-                        this.status = Message::Text("recording_deleted");
-                    }
-                    if this
-                        .last_transcript
-                        .as_ref()
-                        .is_some_and(|(source, _)| source == &path)
-                    {
-                        this.last_transcript = None;
-                    }
-                    this.refresh_recordings(cx);
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.recognition_model_for(&path).is_some() {
+                    return;
                 }
-                Err(error) => {
-                    let detail = format!("{}: {error}", file_name(&path));
-                    drop(window.prompt(
-                        PromptLevel::Warning,
-                        &t!("delete_failed"),
-                        Some(&detail),
-                        &[t!("ok").as_ref()],
-                        cx,
-                    ));
-                    this.refresh_recordings(cx);
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {
+                        if this.audio_path.as_ref() == Some(&path) {
+                            this.clear_audio(window, cx);
+                            this.status = Message::Empty;
+                        }
+                        this.session_transcripts.remove(&path);
+                        if let Err(error) = delete_transcripts(&path) {
+                            drop(window.prompt(
+                                PromptLevel::Warning,
+                                &t!("delete_failed"),
+                                Some(&error.to_string()),
+                                &[t!("ok").as_ref()],
+                                cx,
+                            ));
+                        }
+                        this.refresh_recordings(cx);
+                    }
+                    Err(error) => {
+                        let detail = format!("{}: {error}", file_name(&path));
+                        drop(window.prompt(
+                            PromptLevel::Warning,
+                            &t!("delete_failed"),
+                            Some(&detail),
+                            &[t!("ok").as_ref()],
+                            cx,
+                        ));
+                        this.refresh_recordings(cx);
+                    }
                 }
             });
         })

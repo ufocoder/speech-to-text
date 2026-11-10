@@ -10,25 +10,27 @@ use crate::{
     i18n::{Language, Message},
     models::SpeechModel,
     recognition,
-    storage::{SavedRecording, model_cache, recordings_dir},
+    storage::{SavedRecording, Transcripts, model_cache, recordings_dir},
 };
 use anyhow::Context as _;
-use gpui_kit::component::{
-    input::TextareaState,
-    slider::{SliderEvent, SliderState, SliderValue},
-};
+use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
-use std::path::PathBuf;
 use std::sync::Arc;
+use std::{collections::BTreeMap, path::PathBuf};
 
 pub(crate) struct Recorder {
     recording: Option<Recording>,
     microphone: Option<(SharedString, cpal::Device)>,
-    recognition_path: Option<PathBuf>,
-    last_transcript: Option<(PathBuf, String)>,
+    recognition_job: Option<(PathBuf, SpeechModel)>,
+    session_transcripts: BTreeMap<PathBuf, Transcripts>,
+    transcripts: Transcripts,
+    selected_transcript: Option<String>,
     loading_audio: bool,
     model: SpeechModel,
+    audio_model: Option<SpeechModel>,
     downloading_model: bool,
+    download_percent: u8,
+    download_progress_task: Option<Task<()>>,
     choosing_file: bool,
     status: Message,
     language: Language,
@@ -38,9 +40,8 @@ pub(crate) struct Recorder {
     audio: Option<Arc<Audio>>,
     audio_path: Option<PathBuf>,
     saved_recordings: Option<Result<Vec<SavedRecording>, Message>>,
-    saved_text: Option<(String, Entity<TextareaState>)>,
     player: Option<Player>,
-    playback_slider: Entity<SliderState>,
+    playback_position: f64,
     playback_task: Option<Task<()>>,
     playback_error: Option<Message>,
 }
@@ -50,24 +51,19 @@ impl Recorder {
         let transcript = cx.new(|cx| {
             TextareaState::new(window, cx).placeholder(t!("transcript_placeholder").into_owned())
         });
-        let playback_slider = cx.new(|_| SliderState::new().max(1.).step(0.001));
-        cx.subscribe(&playback_slider, |this, _, event, cx| {
-            if let (SliderEvent::Change(SliderValue::Single(progress)), Some(audio), Some(player)) =
-                (event, this.audio.as_ref(), this.player.as_ref())
-            {
-                player.seek(f64::from(*progress) * audio.duration());
-            }
-            cx.notify();
-        })
-        .detach();
         Self {
             recording: None,
             microphone: None,
-            recognition_path: None,
-            last_transcript: None,
+            recognition_job: None,
+            session_transcripts: BTreeMap::new(),
+            transcripts: Transcripts::new(),
+            selected_transcript: None,
             loading_audio: false,
-            model: SpeechModel::Tone,
+            model: SpeechModel::Parakeet,
+            audio_model: None,
             downloading_model: false,
+            download_percent: 0,
+            download_progress_task: None,
             choosing_file: false,
             status: Message::Empty,
             language,
@@ -77,9 +73,8 @@ impl Recorder {
             audio: None,
             audio_path: None,
             saved_recordings: None,
-            saved_text: None,
             player: None,
-            playback_slider,
+            playback_position: 0.,
             playback_task: None,
             playback_error: None,
         }
@@ -115,11 +110,13 @@ impl Recorder {
     fn clear_audio(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.playback_task = None;
         self.player = None;
-        self.playback_slider
-            .update(cx, |slider, cx| slider.set_value(0., window, cx));
+        self.playback_position = 0.;
+        self.audio_model = None;
         self.audio = None;
         self.audio_path = None;
         self.playback_error = None;
+        self.transcripts.clear();
+        self.selected_transcript = None;
         self.transcript.update(cx, |input, cx| {
             input.set_value("", window, cx);
         });
@@ -160,36 +157,50 @@ impl Recorder {
     }
 
     fn audio_busy(&self) -> bool {
-        self.loading_audio || self.recognition_path.is_some()
+        self.loading_audio || self.recognition_job.is_some()
     }
 
     fn load_audio(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.load_audio_with_transcript(path, None, window, cx);
+    }
+
+    fn load_audio_with_transcript(
+        &mut self,
+        path: PathBuf,
+        transcript: Option<Option<String>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.loading_audio || self.choosing_file || self.recording.is_some() {
+            return;
+        }
         self.clear_audio(window, cx);
         self.loading_audio = true;
         self.status = Message::Detail("opening_audio", path.display().to_string());
         let audio_path = path.clone();
-        let task = cx.background_spawn(async move {
-            let audio = Audio::load(&audio_path)?;
-            let saved = std::fs::read_to_string(crate::storage::transcript_path(&audio_path)).ok();
-            anyhow::Ok((audio, saved))
-        });
+        let task = cx.background_spawn(async move { Audio::load(&audio_path) });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await.context(t!("open_audio_failed").into_owned());
             let _ = this.update_in(cx, |this, window, cx| {
                 this.loading_audio = false;
                 match result {
-                    Ok((audio, saved)) => {
+                    Ok(audio) => {
                         this.audio = Some(Arc::new(audio));
-                        if let Some(text) = this
-                            .last_transcript
-                            .as_ref()
-                            .filter(|(source, _)| source == &path)
-                            .map(|(_, text)| text.as_str())
-                            .or(saved.as_deref())
-                        {
-                            this.transcript
-                                .update(cx, |input, cx| input.set_value(text, window, cx));
+                        this.transcripts = crate::storage::read_transcripts(&path);
+                        if let Some(results) = this.session_transcripts.get(&path) {
+                            this.transcripts.extend(results.clone());
                         }
+                        let selected = transcript
+                            .filter(|model| this.transcripts.contains_key(model))
+                            .or_else(|| {
+                                let default = Some(this.model.label().to_owned());
+                                this.transcripts
+                                    .get_key_value(&default)
+                                    .map(|(key, _)| key.clone())
+                            })
+                            .or_else(|| this.transcripts.keys().next().cloned())
+                            .flatten();
+                        this.select_transcript(selected, window, cx);
                         this.audio_path = Some(path);
                         this.status = Message::Empty;
                     }
@@ -202,6 +213,30 @@ impl Recorder {
         cx.notify();
     }
 
+    fn select_transcript(
+        &mut self,
+        model: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = self.transcripts.get(&model).map_or("", String::as_str);
+        self.transcript
+            .update(cx, |input, cx| input.set_value(text, window, cx));
+        self.selected_transcript = model;
+        cx.notify();
+    }
+
+    fn recognition_model_for(&self, path: &std::path::Path) -> Option<SpeechModel> {
+        self.recognition_job
+            .as_ref()
+            .filter(|(source, _)| source == path)
+            .map(|(_, model)| *model)
+    }
+
+    fn active_audio_model(&self) -> SpeechModel {
+        self.audio_model.unwrap_or(self.model)
+    }
+
     fn recognize(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.audio_busy() || self.choosing_file || self.recording.is_some() {
             return;
@@ -209,44 +244,61 @@ impl Recorder {
         let (Some(audio), Some(path)) = (self.audio.clone(), self.audio_path.clone()) else {
             return;
         };
-        let Some(directory) = self.model.cached_directory(&model_cache()) else {
+        let model = self.active_audio_model();
+        let Some(directory) = model.cached_directory(&model_cache()) else {
             self.status = Message::Text("download_model_hint");
             cx.notify();
             return;
         };
-        self.recognition_path = Some(path.clone());
+        self.recognition_job = Some((path.clone(), model));
         let source = path.clone();
-        let model = self.model;
-        let recordings = recordings_dir();
         self.status = Message::Empty;
         let task = cx.background_spawn(async move {
             let text = recognition::transcribe(&audio, model, &directory)?;
-            let save = crate::storage::save_transcript(&path, &recordings, &text, model.label());
+            let save = crate::storage::save_transcript(&path, &text, model);
             anyhow::Ok((text, save))
         });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.recognition_path = None;
+                this.recognition_job = None;
                 let source_is_open = this.audio_path.as_ref() == Some(&source);
                 match result {
                     Ok((text, save)) => {
-                        this.last_transcript = Some((source, text.clone()));
+                        let key = Some(model.label().to_owned());
+                        if let Err(error) = &save {
+                            this.session_transcripts
+                                .entry(source.clone())
+                                .or_default()
+                                .insert(key.clone(), text.clone());
+                            if !source_is_open {
+                                drop(window.prompt(
+                                    PromptLevel::Warning,
+                                    &t!("save_text_error", detail = error.to_string()),
+                                    None,
+                                    &[t!("ok").as_ref()],
+                                    cx,
+                                ));
+                            }
+                        } else if let Some(results) = this.session_transcripts.get_mut(&source) {
+                            results.remove(&key);
+                        }
                         if !source_is_open {
                             cx.notify();
                             return;
                         }
-                        this.status = if text.is_empty() {
-                            Message::Text("no_speech")
-                        } else {
-                            Message::Empty
-                        };
+                        this.status = Message::Empty;
                         if let Err(error) = save {
                             this.status = Message::Detail("save_text_error", error.to_string());
                         }
-                        this.transcript.update(cx, |input, cx| {
-                            input.set_value(text, window, cx);
-                        });
+                        let first_result = this.transcripts.is_empty();
+                        let selected = if first_result {
+                            key.clone()
+                        } else {
+                            this.selected_transcript.clone()
+                        };
+                        this.transcripts.insert(key, text);
+                        this.select_transcript(selected, window, cx);
                     }
                     Err(error) if source_is_open => {
                         this.status = Message::Error(format!("{error:#}"))

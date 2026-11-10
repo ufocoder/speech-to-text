@@ -5,6 +5,7 @@ use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, Sizable, StyledExt,
     button::{Button, ButtonCustomVariant, ButtonVariants},
     input::Textarea,
+    tab::{Tab, TabBar},
 };
 use gpui_kit::{prelude::*, *};
 use rust_i18n::t;
@@ -20,8 +21,6 @@ impl Render for Recorder {
         };
         let content = if self.settings_open {
             self.settings_content(cx).into_any_element()
-        } else if let Some((name, text)) = &self.saved_text {
-            self.saved_text_view(name, text, cx).into_any_element()
         } else if let Some(recordings) = &self.saved_recordings {
             self.recordings_table(recordings, cx).into_any_element()
         } else if let Some(path) = &self.audio_path {
@@ -42,7 +41,8 @@ impl Render for Recorder {
 
 impl Recorder {
     fn navigation(&self, cx: &Context<Self>) -> Div {
-        let home_active = !self.settings_open && self.saved_recordings.is_none();
+        let home_active =
+            !self.settings_open && self.saved_recordings.is_none() && self.audio_path.is_none();
         div()
             .flex()
             .items_center()
@@ -77,7 +77,6 @@ impl Recorder {
                                     || self.choosing_file,
                             )
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.saved_text = None;
                                 let from_archive = this.saved_recordings.take().is_some();
                                 let from_settings = std::mem::take(&mut this.settings_open);
                                 if !from_archive && !from_settings {
@@ -163,7 +162,7 @@ impl Recorder {
                 !recording && !matches!(self.status, Message::Empty),
                 |view| view.child(div().text_sm().child(self.status.render())),
             )
-            .when(self.recognition_path.is_some(), |view| {
+            .when(self.recognition_job.is_some(), |view| {
                 view.child(div().text_sm().child(t!("recognizing").into_owned()))
             })
     }
@@ -173,12 +172,12 @@ impl Recorder {
             .file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy();
-        let processing = self.recognition_path.is_some();
+        let busy = self.recognition_job.is_some();
+        let processing = self.recognition_model_for(path);
         let model_ready = self
-            .model
+            .active_audio_model()
             .cached_directory(&crate::storage::model_cache())
-            .is_some()
-            && !self.downloading_model;
+            .is_some();
         let has_text = !self.transcript.read(cx).value().trim().is_empty();
         let theme = cx.theme();
         let border = theme.border;
@@ -224,24 +223,23 @@ impl Recorder {
                     .child(
                         Button::new("transcribe-audio")
                             .primary()
-                            .label(if processing {
-                                t!("recognizing").into_owned()
-                            } else {
-                                t!("transcribe").into_owned()
-                            })
-                            .disabled(processing || !model_ready)
+                            .label(t!("transcribe").into_owned())
+                            .disabled(busy || !model_ready)
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.recognize(window, cx)),
                             ),
                     )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(muted)
-                            .child(t!("model", detail = self.model.label()).into_owned()),
-                    ),
+                    .child(self.audio_model_menu(cx)),
             )
-            .when(!model_ready && !processing, |view| {
+            .when_some(processing, |view, model| {
+                view.child(
+                    div()
+                        .text_sm()
+                        .text_color(muted)
+                        .child(t!("recognizing_with_model", model = model.label()).into_owned()),
+                )
+            })
+            .when(!model_ready && processing.is_none(), |view| {
                 view.child(
                     div()
                         .text_sm()
@@ -257,7 +255,7 @@ impl Recorder {
                     .iter()
                     .map(|error| div().text_sm().child(error.render())),
             )
-            .when(has_text && !processing, |view| {
+            .when(!self.transcripts.is_empty(), |view| {
                 view.child(
                     div()
                         .flex()
@@ -267,6 +265,7 @@ impl Recorder {
                         .child(div().font_semibold().child(t!("transcript").into_owned()))
                         .child(
                             Button::new("copy-transcript")
+                                .disabled(!has_text)
                                 .icon(IconName::Copy)
                                 .label(t!("save_to_clipboard").into_owned())
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -276,14 +275,45 @@ impl Recorder {
                         ),
                 )
                 .child(
-                    div().flex_1().min_h_0().child(
-                        Textarea::new(&self.transcript)
-                            .h(relative(1.))
-                            .text_base()
-                            .font_family("Georgia")
-                            .readonly(true),
-                    ),
+                    TabBar::new("transcript-tabs")
+                        .underline()
+                        .selected_index(
+                            self.transcripts
+                                .keys()
+                                .position(|model| model == &self.selected_transcript)
+                                .unwrap_or_default(),
+                        )
+                        .children(self.transcripts.keys().map(|model| {
+                            let label = model
+                                .clone()
+                                .unwrap_or_else(|| t!("unknown_transcript_model").into_owned());
+                            Tab::new().label(label)
+                        }))
+                        .on_click(cx.listener(|this, index, window, cx| {
+                            if let Some(model) = this.transcripts.keys().nth(*index).cloned() {
+                                this.select_transcript(model, window, cx);
+                            }
+                        })),
                 )
+                .when(!has_text, |view| {
+                    view.child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(t!("no_speech").into_owned()),
+                    )
+                })
+                .when(has_text, |view| {
+                    view.child(
+                        div().flex_1().min_h_0().child(
+                            Textarea::new(&self.transcript)
+                                .h(relative(1.))
+                                .text_base()
+                                .font_family("Georgia")
+                                .readonly(true),
+                        ),
+                    )
+                })
             })
     }
 }

@@ -2,6 +2,7 @@ use super::Recorder;
 use crate::{
     i18n::{Language, Message},
     models::SpeechModel,
+    storage::model_cache,
 };
 use cpal::traits::{DeviceTrait, HostTrait};
 use gpui_kit::component::{
@@ -13,6 +14,37 @@ use gpui_kit::*;
 use rust_i18n::t;
 
 impl Recorder {
+    pub(super) fn audio_model_menu(&self, cx: &Context<Self>) -> impl IntoElement {
+        let selected = self.active_audio_model();
+        let view = cx.entity().downgrade();
+        Button::new("audio-model")
+            .label(t!("model", detail = selected.label()).into_owned())
+            .disabled(self.audio_busy())
+            .dropdown_menu(move |menu, _, _| {
+                let cache = model_cache();
+                SpeechModel::ALL.into_iter().fold(menu, |menu, model| {
+                    let view = view.clone();
+                    let label = if model.cached_directory(&cache).is_some() {
+                        model.label().to_owned()
+                    } else {
+                        t!("audio_model_not_downloaded", model = model.label()).into_owned()
+                    };
+                    menu.item(
+                        PopupMenuItem::new(label)
+                            .checked(model == selected)
+                            .on_click(move |_, _, cx| {
+                                let _ = view.update(cx, |this, cx| {
+                                    if this.audio_path.is_some() && !this.audio_busy() {
+                                        this.audio_model = Some(model);
+                                        cx.notify();
+                                    }
+                                });
+                            }),
+                    )
+                })
+            })
+    }
+
     pub(super) fn microphone_menu(&self, view: WeakEntity<Self>) -> impl IntoElement {
         let name = self.microphone.as_ref().map_or_else(
             || t!("system_default").into_owned(),
@@ -67,39 +99,6 @@ impl Recorder {
             })
     }
 
-    pub(super) fn model_menu(&self, view: WeakEntity<Self>) -> impl IntoElement {
-        let selected = self.model;
-        Button::new("speech-model")
-            .label(selected.label())
-            .disabled(self.downloading_model || self.audio_busy() || self.recording.is_some())
-            .dropdown_menu(move |menu, _, _| {
-                [
-                    SpeechModel::Tone,
-                    SpeechModel::GigaAm,
-                    SpeechModel::Parakeet,
-                ]
-                .into_iter()
-                .fold(menu, |menu, model| {
-                    let view = view.clone();
-                    menu.item(
-                        PopupMenuItem::new(model.label())
-                            .checked(model == selected)
-                            .on_click(move |_, _, cx| {
-                                let _ = view.update(cx, |this, cx| {
-                                    if !this.downloading_model
-                                        && !this.audio_busy()
-                                        && this.recording.is_none()
-                                    {
-                                        this.model = model;
-                                        this.settings_error = None;
-                                        cx.notify();
-                                    }
-                                });
-                            }),
-                    )
-                })
-            })
-    }
     pub(super) fn language_menu(&self, view: WeakEntity<Self>) -> impl IntoElement {
         let selected = self.language;
         Button::new("language")
