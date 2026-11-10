@@ -1,0 +1,55 @@
+name: macOS Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Verify release version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [[ -z "$version" || "$GITHUB_REF_NAME" != "v$version" ]]; then
+            printf 'Tag %s must match Cargo.toml version v%s\n' "$GITHUB_REF_NAME" "$version" >&2
+            exit 1
+          fi
+
+      - name: Install Rust targets
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup override set stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Build macOS apps
+        run: ./scripts/build-macos.sh
+
+      - name: Archive macOS apps
+        run: |
+          for arch in arm64 x86_64; do
+            ditto -c -k --keepParent "dist/macos/$arch/Speech to Text.app" \
+              "dist/macos/speech-to-text-${GITHUB_REF_NAME}-macos-$arch.zip"
+          done
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/macos/speech-to-text-${GITHUB_REF_NAME}-macos-arm64.zip" \
+            "dist/macos/speech-to-text-${GITHUB_REF_NAME}-macos-x86_64.zip" \
+            --verify-tag --title "Speech to Text $GITHUB_REF_NAME" --generate-notes

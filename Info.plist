@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- A standalone cargo-run executable has no macOS app bundle. -->
+    <key>CFBundleName</key>
+    <string>Speech to Text</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>The microphone is used to record speech for transcription.</string>
+</dict>
+</plist>

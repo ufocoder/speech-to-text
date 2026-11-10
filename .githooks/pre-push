@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+if [ "$(uname -s)" = Darwin ]; then
+    exec ./scripts/build-macos.sh
+fi
+
+echo "Skipping macOS build on a non-macOS host." >&2

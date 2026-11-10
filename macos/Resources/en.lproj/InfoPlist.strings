@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Speech to Text";
+"CFBundleName" = "Speech to Text";
+"NSMicrophoneUsageDescription" = "The microphone is used to record speech for transcription.";
