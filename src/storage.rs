@@ -170,3 +170,35 @@ pub fn delete_transcripts(audio: &Path) -> std::io::Result<()> {
 pub fn language_file() -> PathBuf {
     app_data_dir().join(".language")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transcripts_are_independent_and_preserve_legacy_results() -> std::io::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let audio = directory.path().join("recording.wav");
+        std::fs::write(transcript_path(&audio), "legacy")?;
+        std::fs::write(transcript_model_path(&audio), SpeechModel::Tone.label())?;
+        save_transcript(&audio, "first", SpeechModel::GigaAm)?;
+        save_transcript(&audio, "second", SpeechModel::Parakeet)?;
+        save_transcript(&audio, "updated", SpeechModel::GigaAm)?;
+        assert_eq!(
+            read_transcripts(&audio),
+            [
+                (SpeechModel::Tone, "legacy"),
+                (SpeechModel::GigaAm, "updated"),
+                (SpeechModel::Parakeet, "second"),
+            ]
+            .map(|(model, text)| (Some(model.label().to_owned()), text.to_owned()))
+            .into()
+        );
+        save_transcript(&audio, "new", SpeechModel::Tone)?;
+        assert_eq!(read_transcripts(&audio).len(), 3);
+        assert_eq!(read_transcripts(&audio)[&Some("T-one".to_owned())], "new");
+        delete_transcripts(&audio)?;
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
+        Ok(())
+    }
+}
