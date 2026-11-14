@@ -3,11 +3,15 @@ use rust_i18n::t;
 
 use crate::ui::Recorder;
 
-actions!(application_menu, [About, RecordSpeech, Settings, Quit]);
+actions!(
+    application_menu,
+    [About, CheckForUpdates, RecordSpeech, Settings, Quit]
+);
 
 pub(crate) fn set_menu(cx: &App) {
     cx.set_menus([Menu::new("Speech to Text").items([
         MenuItem::action(t!("menu_about").into_owned(), About),
+        MenuItem::action(t!("check_updates").into_owned(), CheckForUpdates),
         MenuItem::separator(),
         MenuItem::action(t!("menu_record_speech").into_owned(), RecordSpeech),
         MenuItem::action(t!("settings").into_owned(), Settings),
@@ -57,6 +61,7 @@ pub(crate) fn install(recorder: WeakEntity<Recorder>, window: AnyWindowHandle, c
             });
         });
     });
+    cx.on_action(|_: &CheckForUpdates, cx| cx.defer(crate::updates::open));
     cx.on_action(|_: &Quit, cx| cx.quit());
     set_menu(cx);
 }

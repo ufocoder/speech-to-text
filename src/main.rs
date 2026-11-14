@@ -10,6 +10,7 @@ mod models;
 mod recognition;
 mod storage;
 mod ui;
+mod updates;
 
 use gpui_kit::{component::Root, *};
 use ui::Recorder;

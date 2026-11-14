@@ -102,6 +102,13 @@ impl Recorder {
                                 self.language_menu(view),
                             )),
                     )
+                    .child(
+                        div().flex().child(
+                            Button::new("check-updates")
+                                .label(t!("check_updates").into_owned())
+                                .on_click(|_, _, cx| cx.defer(crate::updates::open)),
+                        ),
+                    )
                     .child(self.model_settings(cx))
                     .child(self.speaker_model_settings(cx)),
             )
