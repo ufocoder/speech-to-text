@@ -1,5 +1,8 @@
 use rust_i18n::t;
+#[cfg(target_os = "macos")]
+mod app_menu;
 mod audio;
+mod diarization;
 mod i18n;
 mod models;
 mod recognition;
@@ -35,13 +38,15 @@ fn main() {
                     window_min_size: Some(size(px(490.), px(460.))),
                     window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                         None,
-                        size(px(680.), px(620.)),
+                        size(px(900.), px(620.)),
                         cx,
                     ))),
                     ..Default::default()
                 },
                 move |window, cx| {
                     let view = cx.new(|cx| Recorder::new(language, window, cx));
+                    #[cfg(target_os = "macos")]
+                    app_menu::install(view.downgrade(), window.window_handle(), cx);
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

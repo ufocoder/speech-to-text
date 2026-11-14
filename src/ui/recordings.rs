@@ -179,7 +179,12 @@ impl Recorder {
             )
     }
 
-    fn confirm_delete(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn confirm_delete(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let detail = t!("delete_detail", detail = file_name(&path)).into_owned();
         let answer = window.prompt(
             PromptLevel::Warning,
@@ -212,7 +217,6 @@ impl Recorder {
                                 cx,
                             ));
                         }
-                        this.refresh_recordings(cx);
                     }
                     Err(error) => {
                         let detail = format!("{}: {error}", file_name(&path));
@@ -223,8 +227,12 @@ impl Recorder {
                             &[t!("ok").as_ref()],
                             cx,
                         ));
-                        this.refresh_recordings(cx);
                     }
+                }
+                if this.saved_recordings.is_some() {
+                    this.refresh_recordings(cx);
+                } else {
+                    cx.notify();
                 }
             });
         })

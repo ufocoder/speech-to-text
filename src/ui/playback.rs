@@ -66,7 +66,7 @@ impl Recorder {
         cx.notify();
     }
 
-    fn seek_playback(&mut self, position: f64, cx: &mut Context<Self>) {
+    pub(super) fn seek_playback(&mut self, position: f64, cx: &mut Context<Self>) {
         if let Some(audio) = &self.audio {
             self.playback_position = position.clamp(0., audio.duration());
             if let Some(player) = &self.player {

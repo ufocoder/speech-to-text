@@ -1,9 +1,11 @@
 use rust_i18n::t;
+mod catalog;
 mod layout;
 mod menus;
 mod playback;
 mod recordings;
 mod settings;
+mod speakers;
 
 use crate::{
     audio::{Audio, Player, Recording},
@@ -15,20 +17,46 @@ use crate::{
 use anyhow::Context as _;
 use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU8, Ordering::Relaxed},
+};
+use std::time::{Duration, Instant};
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub(crate) struct Recorder {
     recording: Option<Recording>,
+    speaker_download: Option<usize>,
+    processing_cancel: Arc<std::sync::atomic::AtomicBool>,
+    recognition_task: Option<Task<()>>,
+    opening_task: Option<Task<()>>,
+    speaker_model: crate::models::SpeakerModel,
+    default_speaker_model: crate::models::SpeakerModel,
+    include_timestamps: bool,
+    include_speakers: bool,
+    speaker_task: Option<Task<()>>,
+    speaker_result: Option<Result<Vec<sherpa_onnx::OfflineSpeakerDiarizationSegment>, String>>,
     microphone: Option<(SharedString, cpal::Device)>,
     recognition_job: Option<(PathBuf, SpeechModel)>,
     session_transcripts: BTreeMap<PathBuf, Transcripts>,
     transcripts: Transcripts,
     selected_transcript: Option<String>,
+    recognition_started: Option<Instant>,
+    model_download_started: Option<Instant>,
+    speaker_download_started: Option<Instant>,
     loading_audio: bool,
+    opening_progress: Arc<AtomicU8>,
+    recognition_progress: Arc<AtomicU8>,
+    speaker_download_progress: Arc<AtomicU8>,
+    speaker_started: Option<Instant>,
+    speaker_progress: Arc<AtomicU8>,
     model: SpeechModel,
     audio_model: Option<SpeechModel>,
-    downloading_model: bool,
+    catalog_models: Vec<SpeechModel>,
+    model_languages_expanded: bool,
+    model_update_dates: BTreeMap<&'static str, chrono::NaiveDate>,
+    model_update_tasks: Vec<Task<()>>,
+    downloading_model: Option<SpeechModel>,
     download_percent: u8,
     download_progress_task: Option<Task<()>>,
     choosing_file: bool,
@@ -36,6 +64,7 @@ pub(crate) struct Recorder {
     language: Language,
     settings_open: bool,
     settings_error: Option<Message>,
+    transcript_font_size: u8,
     transcript: Entity<TextareaState>,
     audio: Option<Arc<Audio>>,
     audio_path: Option<PathBuf>,
@@ -53,15 +82,37 @@ impl Recorder {
         });
         Self {
             recording: None,
+            speaker_download: None,
+            processing_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            recognition_task: None,
+            opening_task: None,
+            speaker_model: crate::storage::default_speaker_model(),
+            default_speaker_model: crate::storage::default_speaker_model(),
+            include_timestamps: true,
+            include_speakers: true,
+            speaker_task: None,
+            speaker_result: None,
             microphone: None,
             recognition_job: None,
             session_transcripts: BTreeMap::new(),
             transcripts: Transcripts::new(),
             selected_transcript: None,
+            recognition_started: None,
+            model_download_started: None,
+            speaker_download_started: None,
             loading_audio: false,
+            opening_progress: Arc::new(AtomicU8::new(0)),
+            recognition_progress: Arc::new(AtomicU8::new(0)),
+            speaker_download_progress: Arc::new(AtomicU8::new(0)),
+            speaker_started: None,
+            speaker_progress: Arc::new(AtomicU8::new(0)),
             model: SpeechModel::Parakeet,
             audio_model: None,
-            downloading_model: false,
+            catalog_models: crate::storage::added_models(),
+            model_languages_expanded: false,
+            model_update_dates: BTreeMap::new(),
+            model_update_tasks: Vec::new(),
+            downloading_model: None,
             download_percent: 0,
             download_progress_task: None,
             choosing_file: false,
@@ -69,6 +120,7 @@ impl Recorder {
             language,
             settings_open: false,
             settings_error: None,
+            transcript_font_size: 16,
             transcript,
             audio: None,
             audio_path: None,
@@ -78,6 +130,17 @@ impl Recorder {
             playback_task: None,
             playback_error: None,
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn record_speech(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.recording.is_some() || self.loading_audio || self.choosing_file {
+            return;
+        }
+        self.settings_open = false;
+        self.saved_recordings = None;
+        self.clear_audio(window, cx);
+        self.toggle(window, cx);
     }
 
     fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -107,8 +170,24 @@ impl Recorder {
         cx.notify();
     }
 
+    fn reset_audio(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.processing_cancel.store(true, Relaxed);
+        self.opening_task = None;
+        self.recognition_task = None;
+        self.speaker_task = None;
+        self.loading_audio = false;
+        self.recognition_job = None;
+        self.clear_audio(window, cx);
+        self.saved_recordings = None;
+        self.settings_open = false;
+        self.status = Message::Empty;
+        cx.notify();
+    }
+
     fn clear_audio(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.playback_task = None;
+        self.speaker_result = None;
+        self.speaker_model = self.default_speaker_model;
         self.player = None;
         self.playback_position = 0.;
         self.audio_model = None;
@@ -176,12 +255,30 @@ impl Recorder {
         }
         self.clear_audio(window, cx);
         self.loading_audio = true;
-        self.status = Message::Detail("opening_audio", path.display().to_string());
+        self.status = Message::Detail(
+            "opening_audio",
+            path.file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy()
+                .into_owned(),
+        );
+        self.audio_path = Some(path.clone());
         let audio_path = path.clone();
-        let task = cx.background_spawn(async move { Audio::load(&audio_path) });
-        cx.spawn_in(window, async move |this, cx| {
+        let (progress, refresh) = Self::track_progress(&self.opening_progress, cx);
+        self.processing_cancel = Arc::default();
+        let cancel = self.processing_cancel.clone();
+        let task = cx.background_spawn(async move {
+            Audio::load(&audio_path, |value| {
+                anyhow::ensure!(!cancel.load(Relaxed), "Cancelled");
+                progress.store(value, Relaxed);
+                Ok(())
+            })
+        });
+        self.opening_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = task.await.context(t!("open_audio_failed").into_owned());
+            drop(refresh);
             let _ = this.update_in(cx, |this, window, cx| {
+                this.opening_task = None;
                 this.loading_audio = false;
                 match result {
                     Ok(audio) => {
@@ -204,12 +301,14 @@ impl Recorder {
                         this.audio_path = Some(path);
                         this.status = Message::Empty;
                     }
-                    Err(error) => this.status = Message::Error(format!("{error:#}")),
+                    Err(error) => {
+                        this.audio_path = None;
+                        this.status = Message::Error(format!("{error:#}"));
+                    }
                 }
                 cx.notify();
             });
-        })
-        .detach();
+        }));
         cx.notify();
     }
 
@@ -219,7 +318,13 @@ impl Recorder {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let text = self.transcripts.get(&model).map_or("", String::as_str);
+        let text = match self.transcripts.get(&model) {
+            Some(crate::storage::Transcript::Legacy(text)) => text.clone(),
+            Some(crate::storage::Transcript::Structured(turns)) => {
+                recognition::format_turns(turns, self.include_timestamps, self.include_speakers)
+            }
+            None => String::new(),
+        };
         self.transcript
             .update(cx, |input, cx| input.set_value(text, window, cx));
         self.selected_transcript = model;
@@ -233,38 +338,89 @@ impl Recorder {
             .map(|(_, model)| *model)
     }
 
-    fn active_audio_model(&self) -> SpeechModel {
-        self.audio_model.unwrap_or(self.model)
+    fn active_audio_model(&self) -> Option<SpeechModel> {
+        let cache = model_cache();
+        self.audio_model
+            .into_iter()
+            .chain([self.model])
+            .chain(SpeechModel::ALL)
+            .find(|model| model.cached_directory(&cache).is_some())
+    }
+
+    fn track_progress(progress: &Arc<AtomicU8>, cx: &Context<Self>) -> (Arc<AtomicU8>, Task<()>) {
+        progress.store(0, Relaxed);
+        let watched = progress.clone();
+        let executor = cx.background_executor().clone();
+        let refresh = cx.spawn(async move |this, cx| {
+            let mut previous = 0;
+            loop {
+                executor.timer(Duration::from_millis(120)).await;
+                let current = watched.load(Relaxed);
+                if current != previous {
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        break;
+                    }
+                    previous = current;
+                }
+            }
+        });
+        (progress.clone(), refresh)
     }
 
     fn recognize(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.audio_busy() || self.choosing_file || self.recording.is_some() {
+        if self.audio_busy()
+            || self.choosing_file
+            || self.recording.is_some()
+            || self.speaker_task.is_some()
+            || self.speaker_download.is_some()
+        {
             return;
         }
         let (Some(audio), Some(path)) = (self.audio.clone(), self.audio_path.clone()) else {
             return;
         };
-        let model = self.active_audio_model();
-        let Some(directory) = model.cached_directory(&model_cache()) else {
+        let Some((model, directory)) = self.active_audio_model().and_then(|model| {
+            model
+                .cached_directory(&model_cache())
+                .map(|directory| (model, directory))
+        }) else {
             self.status = Message::Text("download_model_hint");
             cx.notify();
             return;
         };
+        self.processing_cancel = Arc::default();
+        let cancel = self.processing_cancel.clone();
+        let segments = self.split_speakers(window, cx);
         self.recognition_job = Some((path.clone(), model));
         let source = path.clone();
         self.status = Message::Empty;
-        let task = cx.background_spawn(async move {
-            let text = recognition::transcribe(&audio, model, &directory)?;
-            let save = crate::storage::save_transcript(&path, &text, model);
-            anyhow::Ok((text, save))
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let result = task.await;
+        self.recognition_started = None;
+        let (progress, refresh) = Self::track_progress(&self.recognition_progress, cx);
+        self.recognition_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let segments = segments.await.unwrap_or_default();
+            let _ = this.update_in(cx, |this, _, cx| {
+                this.recognition_started = Some(Instant::now());
+                cx.notify();
+            });
+            let result = cx
+                .background_spawn(async move {
+                    let report = |value| {
+                        anyhow::ensure!(!cancel.load(Relaxed), "Cancelled");
+                        progress.store(value, Relaxed);
+                        Ok(())
+                    };
+                    recognition::transcribe_speakers(&audio, model, &directory, &segments, &report)
+                })
+                .await;
+            drop(refresh);
             let _ = this.update_in(cx, |this, window, cx| {
+                this.recognition_task = None;
                 this.recognition_job = None;
                 let source_is_open = this.audio_path.as_ref() == Some(&source);
                 match result {
-                    Ok((text, save)) => {
+                    Ok(turns) => {
+                        let save = crate::storage::save_transcript(&path, &turns, model);
+                        let text = crate::storage::Transcript::Structured(turns);
                         let key = Some(model.label().to_owned());
                         if let Err(error) = &save {
                             this.session_transcripts
@@ -307,8 +463,49 @@ impl Recorder {
                 }
                 cx.notify();
             });
-        })
-        .detach();
+        }));
         cx.notify();
     }
+}
+
+fn progress_label(progress: &AtomicU8) -> String {
+    let value = progress.load(Relaxed);
+    if value == 0 {
+        String::new()
+    } else {
+        format!("{value}%")
+    }
+}
+
+fn remaining_time(started: Option<Instant>, percent: u8) -> String {
+    let Some(elapsed) = started.map(|time| time.elapsed()) else {
+        return String::new();
+    };
+    if percent == 0 || (percent < 99 && elapsed.as_secs() < 2) {
+        return t!("estimating_time").into_owned();
+    }
+    if percent >= 99 {
+        return String::new();
+    }
+    format_remaining_time(estimate_seconds(elapsed, percent).unwrap_or_default())
+}
+
+fn estimate_seconds(elapsed: Duration, percent: u8) -> Option<u64> {
+    (elapsed.as_secs() >= 2 && (1..99).contains(&percent)).then(|| {
+        (elapsed.as_secs_f64() * f64::from(100 - percent) / f64::from(percent)).ceil() as u64
+    })
+}
+
+fn format_remaining_time(seconds: u64) -> String {
+    let time = if seconds >= 3600 {
+        format!(
+            "{}:{:02}:{:02}",
+            seconds / 3600,
+            seconds / 60 % 60,
+            seconds % 60
+        )
+    } else {
+        format!("{}:{:02}", seconds / 60, seconds % 60)
+    };
+    t!("remaining_time", time = time).into_owned()
 }

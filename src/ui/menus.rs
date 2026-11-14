@@ -14,34 +14,35 @@ use gpui_kit::*;
 use rust_i18n::t;
 
 impl Recorder {
-    pub(super) fn audio_model_menu(&self, cx: &Context<Self>) -> impl IntoElement {
-        let selected = self.active_audio_model();
+    pub(super) fn audio_model_menu(
+        &self,
+        selected: SpeechModel,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let view = cx.entity().downgrade();
         Button::new("audio-model")
             .label(t!("model", detail = selected.label()).into_owned())
             .disabled(self.audio_busy())
             .dropdown_menu(move |menu, _, _| {
                 let cache = model_cache();
-                SpeechModel::ALL.into_iter().fold(menu, |menu, model| {
-                    let view = view.clone();
-                    let label = if model.cached_directory(&cache).is_some() {
-                        model.label().to_owned()
-                    } else {
-                        t!("audio_model_not_downloaded", model = model.label()).into_owned()
-                    };
-                    menu.item(
-                        PopupMenuItem::new(label)
-                            .checked(model == selected)
-                            .on_click(move |_, _, cx| {
-                                let _ = view.update(cx, |this, cx| {
-                                    if this.audio_path.is_some() && !this.audio_busy() {
-                                        this.audio_model = Some(model);
-                                        cx.notify();
-                                    }
-                                });
-                            }),
-                    )
-                })
+                SpeechModel::ALL
+                    .into_iter()
+                    .filter(|model| model.cached_directory(&cache).is_some())
+                    .fold(menu, |menu, model| {
+                        let view = view.clone();
+                        menu.item(
+                            PopupMenuItem::new(model.label())
+                                .checked(model == selected)
+                                .on_click(move |_, _, cx| {
+                                    let _ = view.update(cx, |this, cx| {
+                                        if this.audio_path.is_some() && !this.audio_busy() {
+                                            this.audio_model = Some(model);
+                                            cx.notify();
+                                        }
+                                    });
+                                }),
+                        )
+                    })
             })
     }
 
@@ -53,7 +54,7 @@ impl Recorder {
         let using_default = self.microphone.is_none();
         Button::new("microphone")
             .large()
-            .label(t!("microphone", detail = name).into_owned())
+            .label(name)
             .disabled(self.recording.is_some())
             .dropdown_menu(move |menu, _, _| {
                 let default_view = view.clone();
@@ -116,6 +117,8 @@ impl Recorder {
                                     let _ = view.update(cx, |this, cx| {
                                         this.language = language;
                                         language.activate();
+                                        #[cfg(target_os = "macos")]
+                                        crate::app_menu::set_menu(cx);
                                         window.set_window_title(&t!("window_title"));
                                         this.transcript.update(cx, |input, cx| {
                                             input.set_placeholder(
