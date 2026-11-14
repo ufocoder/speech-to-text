@@ -11,6 +11,10 @@ fn app_data_dir() -> PathBuf {
     {
         return PathBuf::from(home).join("Library/Application Support/Speech to Text");
     }
+    #[cfg(target_os = "windows")]
+    if let Some(local_data) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(local_data).join("Speech to Text");
+    }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 

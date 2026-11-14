@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use rust_i18n::t;
 #[cfg(target_os = "macos")]
 mod app_menu;

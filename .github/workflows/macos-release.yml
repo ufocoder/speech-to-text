@@ -1,4 +1,4 @@
-name: macOS Release
+name: Desktop Release
 
 on:
   push:
@@ -12,7 +12,7 @@ concurrency:
   group: macos-release-${{ github.ref }}
 
 jobs:
-  release:
+  macos:
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -45,11 +45,45 @@ jobs:
               "dist/macos/speech-to-text-${GITHUB_REF_NAME}-macos-$arch.zip"
           done
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/macos/*.zip
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build Windows x64
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo build --release --locked --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Archive Windows executable
+        run: |
+          Compress-Archive -Path target/x86_64-pc-windows-msvc/release/speech-to-text.exe -DestinationPath "speech-to-text-${env:GITHUB_REF_NAME}-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: speech-to-text-*-windows-x64.zip
+          if-no-files-found: error
+
+  release:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/macos/speech-to-text-${GITHUB_REF_NAME}-macos-arm64.zip" \
-            "dist/macos/speech-to-text-${GITHUB_REF_NAME}-macos-x86_64.zip" \
-            --verify-tag --title "Speech to Text $GITHUB_REF_NAME" --generate-notes
+          gh release create "$GITHUB_REF_NAME" release/*.zip \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Speech to Text $GITHUB_REF_NAME" --generate-notes
