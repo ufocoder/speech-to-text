@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Speech to Text</title>
+<style>
+:root{color-scheme:light dark;font:16px system-ui;color:#1d2723;background:#eff3ef}body{margin:0}main{max-width:760px;margin:auto;padding:56px 20px}h1{font-size:clamp(2.5rem,8vw,4.5rem);letter-spacing:-.065em;margin:0}p{line-height:1.55}section{background:#fff;border:1px solid #cdd8cf;border-radius:18px;padding:24px;margin-top:24px}h2{margin-top:0}button,a.download{display:inline-block;padding:10px 14px;background:#164e3d;color:#fff;border:0;border-radius:8px;font:inherit;text-decoration:none}button:disabled{opacity:.55}audio,textarea{display:block;width:100%;margin:16px 0}textarea{box-sizing:border-box;padding:12px;border:1px solid #cdd8cf;border-radius:8px;font:inherit}nav{display:flex;flex-wrap:wrap;gap:8px}small{color:#536259}@media(prefers-color-scheme:dark){:root{color:#ebf4ee;background:#17221e}section{background:#202f29;border-color:#42544b}small{color:#bacbc0}}
+</style>
+<main>
+<h1>Speech to Text</h1>
+<p>Расшифровка аудиозаписей в браузере. Аудио обрабатывается на вашем устройстве.</p>
+<section>
+<h2>Попробовать в браузере</h2>
+<label>Аудиофайл <input id="file" type="file" accept="audio/*"></label>
+<audio id="player" controls hidden></audio>
+<p><small>Whisper Tiny INT8 · около 41 МБ весов · русский язык · WebAssembly. При первом запуске браузер скачает модель.</small></p>
+<button id="run" disabled>Распознать</button>
+<p id="status" role="status"></p>
+<textarea id="result" rows="7" readonly aria-label="Расшифровка" placeholder="Здесь появится расшифровка"></textarea>
+</section>
+<section>
+<h2>Скачать приложение</h2>
+<nav id="downloads" aria-label="Сборки приложения">
+<a class="download" href="https://github.com/ufocoder/speech-to-text/releases">Релизы для Windows и macOS</a>
+</nav>
+<p id="release-status" role="status"></p>
+</section>
+</main>
+<script type="module" src="./app.mjs"></script>
+</html>
