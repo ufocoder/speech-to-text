@@ -160,3 +160,5 @@ download_update: "Download update"
 view_releases: "View release"
 
 past_results: "Past results"
+
+update_model: "Update"

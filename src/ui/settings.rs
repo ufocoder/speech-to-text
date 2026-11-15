@@ -5,6 +5,7 @@ use crate::{
     storage::{model_cache, recordings_dir, save_recordings_dir},
 };
 use gpui_kit::assets::IconName;
+use gpui_kit::component::Sizable;
 use gpui_kit::component::{
     ActiveTheme, Disableable, StyledExt,
     button::{Button, ButtonVariants},
@@ -180,6 +181,7 @@ impl Recorder {
     fn model_row(&self, model: SpeechModel, cached: bool, cx: &Context<Self>) -> Div {
         let active = self.model == model;
         let downloading = self.downloading_model == Some(model);
+        let update_available = cached && model.needs_update(&model_cache());
         let blocked = self.model_actions_blocked();
         let view = cx.entity().downgrade();
         let muted = cx.theme().muted_foreground;
@@ -200,6 +202,17 @@ impl Recorder {
                         .text_sm()
                         .text_color(muted)
                         .child(t!("model_not_downloaded").into_owned()),
+                )
+            })
+            .when(update_available && !downloading, |cell| {
+                cell.child(
+                    Button::new(SharedString::from(format!("update-model-{}", model.id())))
+                        .xsmall()
+                        .label(t!("update_model").into_owned())
+                        .disabled(blocked)
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.download_model(model, cx)),
+                        ),
                 )
             })
             .when(downloading, |cell| {

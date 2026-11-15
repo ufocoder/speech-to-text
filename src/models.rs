@@ -19,6 +19,8 @@ struct Asset {
     sha256: &'static str,
 }
 
+const INSTALL_RECEIPT: &str = ".s2t-installed";
+
 struct Source {
     repo: &'static str,
     revision: &'static str,
@@ -80,12 +82,21 @@ impl SpeechModel {
 
     pub fn delete_cached(self, cache: &Path) -> std::io::Result<()> {
         let source = self.source();
-        let directory = source.cache_directory(cache);
-        for asset in source.assets {
-            match std::fs::remove_file(directory.join(asset.name)) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
+        let directories = source
+            .previous_installations(cache)
+            .chain(std::iter::once(source.cache_directory(cache)));
+        for directory in directories {
+            for name in source
+                .assets
+                .iter()
+                .map(|asset| asset.name)
+                .chain([INSTALL_RECEIPT])
+            {
+                match std::fs::remove_file(directory.join(name)) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
             }
         }
         Ok(())
@@ -189,6 +200,14 @@ impl SpeechModel {
             .iter()
             .all(|asset| asset.is_cached(&directory))
             .then_some(directory)
+            .or_else(|| source.previous_installations(cache).next())
+    }
+
+    pub fn needs_update(self, cache: &Path) -> bool {
+        let source = self.source();
+        let current = source.cache_directory(cache);
+        !source.assets.iter().all(|asset| asset.is_cached(&current))
+            && source.previous_installations(cache).next().is_some()
     }
 
     pub fn prepare(self, cache: &Path, report: impl Fn(u64, u64)) -> Result<PathBuf> {
@@ -222,11 +241,50 @@ impl SpeechModel {
                 })?;
             completed += asset.size;
         }
+        let mut receipt = tempfile::NamedTempFile::new_in(&directory)?;
+        for asset in source.assets {
+            writeln!(receipt, "{} {}", asset.name, asset.size)?;
+        }
+        receipt.persist(directory.join(INSTALL_RECEIPT))?;
         Ok(directory)
     }
 }
 
 impl Source {
+    fn previous_installations(&self, cache: &Path) -> impl Iterator<Item = PathBuf> {
+        let current = self.cache_directory(cache);
+        let entries = current.parent().and_then(|parent| parent.read_dir().ok());
+        entries
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter_map(move |entry| {
+                let directory = entry.path();
+                if directory == current || !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    return None;
+                }
+
+                let receipt = std::fs::read_to_string(directory.join(INSTALL_RECEIPT)).ok()?;
+                self.assets
+                    .iter()
+                    .all(|asset| {
+                        receipt.lines().any(|line| {
+                            let Some((name, size)) = line.split_once(' ') else {
+                                return false;
+                            };
+                            name == asset.name
+                                && size.parse::<u64>().ok().is_some_and(|size| {
+                                    directory
+                                        .join(name)
+                                        .metadata()
+                                        .is_ok_and(|meta| meta.is_file() && meta.len() == size)
+                                })
+                        })
+                    })
+                    .then_some(directory)
+            })
+    }
+
     fn cache_directory(&self, cache: &Path) -> PathBuf {
         cache
             .join(format!("models--{}", self.repo.replace('/', "--")))
