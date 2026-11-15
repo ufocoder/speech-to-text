@@ -10,7 +10,7 @@ S2T записывает звук и превращает аудио в текс
 | macOS с Intel | `macos-x86_64.zip` |
 | Windows 64-бит | `windows-x64.zip` |
 
-![Интерфейс приложения S2T](docs/image.png)
+![Интерфейс приложения S2T](docs/image.webp)
 
 ## Первый запуск
 
