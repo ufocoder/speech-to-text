@@ -1,4 +1,4 @@
-name: Web demo
+name: Website
 
 on:
   push:
@@ -28,9 +28,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Check JavaScript
-        run: |
-          node --check docs/app.mjs
-          node --check docs/worker.mjs
+        run: node --check docs/app.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
