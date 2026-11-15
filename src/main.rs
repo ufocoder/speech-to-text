@@ -23,6 +23,7 @@ fn main() {
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            ui::theme::install(cx);
             #[cfg(target_os = "macos")]
             set_dock_icon();
             language.activate();
@@ -36,7 +37,9 @@ fn main() {
                 WindowOptions {
                     titlebar: Some(TitlebarOptions {
                         title: Some(t!("window_title").into_owned().into()),
-                        ..Default::default()
+                        appears_transparent: cfg!(target_os = "macos"),
+                        traffic_light_position: cfg!(target_os = "macos")
+                            .then(|| point(px(16.), px(20.))),
                     }),
                     window_min_size: Some(size(px(490.), px(460.))),
                     window_bounds: Some(WindowBounds::Windowed(Bounds::centered(

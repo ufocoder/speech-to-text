@@ -15,11 +15,7 @@ impl Render for Recorder {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let foreground = theme.foreground;
-        let background = if theme.is_dark() {
-            rgb(0x27221e)
-        } else {
-            rgb(0xf3eee7)
-        };
+        let background = super::theme::window_background(theme);
         let content = if self.settings_open {
             self.settings_content(cx).into_any_element()
         } else if let Some(recordings) = &self.saved_recordings {
@@ -49,13 +45,14 @@ impl Recorder {
             .items_center()
             .flex_wrap()
             .gap_3()
-            .px_4()
-            .py_2()
+            .px_6()
+            .when(cfg!(target_os = "macos"), |header| header.pl(px(84.)))
+            .py_3()
             .border_b_1()
             .border_color(cx.theme().border)
             .child(
                 div()
-                    .text_lg()
+                    .text_xl()
                     .font_semibold()
                     .child(t!("title").into_owned()),
             )
@@ -100,7 +97,7 @@ impl Recorder {
             .hover(if theme.is_dark() {
                 rgb(0x473831).into()
             } else {
-                rgb(0xffffff).into()
+                theme.button_hover
             });
         let record = Button::new("record")
             .large()
@@ -131,11 +128,11 @@ impl Recorder {
                 .flex()
                 .items_center()
                 .max_w_full()
-                .rounded_lg()
+                .rounded(theme.radius_lg)
                 .overflow_hidden()
                 .border_1()
                 .border_color(theme.border)
-                .bg(theme.background)
+                .bg(super::theme::card_background(theme))
                 .child(record.custom(button_style.clone()).rounded_none())
                 .child(div().w(px(1.)).h(px(64.)).bg(theme.border))
                 .child(
@@ -156,8 +153,8 @@ impl Recorder {
             .flex_col()
             .items_center()
             .justify_center()
-            .gap_3()
-            .p_4()
+            .gap_4()
+            .p_6()
             .child(actions)
             .when(
                 !recording && !matches!(self.status, Message::Empty),
@@ -204,14 +201,17 @@ impl Recorder {
         let has_text = !self.transcript.read(cx).value().trim().is_empty();
         let theme = cx.theme();
         let border = theme.border;
-        let card = theme.background;
+        let radius = theme.radius_lg;
+        let button_radius = theme.radius;
+        let button_background = theme.button;
+        let card = super::theme::card_background(theme);
         let muted = theme.muted_foreground;
         let content = div()
             .h_full()
             .flex()
             .flex_col()
-            .gap_3()
-            .p_4()
+            .gap_4()
+            .p_6()
             .child(
                 div()
                     .flex()
@@ -258,7 +258,7 @@ impl Recorder {
             .when(self.loading_audio, |view| {
                 view.child(
                     div()
-                        .rounded_lg()
+                        .rounded(radius)
                         .border_1()
                         .border_color(border)
                         .bg(card)
@@ -273,11 +273,11 @@ impl Recorder {
             })
             .children(self.playback_panel(cx).map(|player| {
                 div()
-                    .rounded_lg()
+                    .rounded(radius)
                     .border_1()
                     .border_color(border)
                     .bg(card)
-                    .p_3()
+                    .p_4()
                     .child(player)
             }))
             .when(!self.loading_audio, |view| {
@@ -300,17 +300,36 @@ impl Recorder {
                             !(processing.is_some() || self.speaker_task.is_some()),
                             |row| {
                                 row.child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .flex()
-                                        .flex_wrap()
-                                        .items_center()
-                                        .gap_3()
-                                        .when_some(selected_model, |row, model| {
-                                            row.child(self.audio_model_menu(model, cx))
+                                    Button::new("toggle-audio-settings")
+                                        .outline()
+                                        .label(if self.audio_settings_expanded {
+                                            format!("← {}", t!("settings"))
+                                        } else {
+                                            format!("{} →", t!("settings"))
                                         })
-                                        .child(self.speaker_model_menu(cx)),
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.audio_settings_expanded =
+                                                !this.audio_settings_expanded;
+                                            cx.notify();
+                                        })),
+                                )
+                                .when(
+                                    self.audio_settings_expanded,
+                                    |row| {
+                                        row.child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .flex()
+                                                .flex_wrap()
+                                                .items_center()
+                                                .gap_3()
+                                                .when_some(selected_model, |row, model| {
+                                                    row.child(self.audio_model_menu(model, cx))
+                                                })
+                                                .child(self.speaker_model_menu(cx)),
+                                        )
+                                    },
                                 )
                             },
                         )
@@ -357,6 +376,29 @@ impl Recorder {
                 )
             })
             .when(
+                !self.loading_audio && !self.recognition_requested && !self.transcripts.is_empty(),
+                |view| {
+                    view.child(
+                        div().flex().child(
+                            Button::new("past-results")
+                                .outline()
+                                .label(if self.results_visible {
+                                    format!("← {}", t!("past_results"))
+                                } else {
+                                    format!("{} →", t!("past_results"))
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.results_visible = !this.results_visible;
+                                    if this.results_visible {
+                                        this.audio_scroll.scroll_to_bottom();
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                    )
+                },
+            )
+            .when(
                 !self.loading_audio && !model_ready && processing.is_none(),
                 |view| {
                     view.child(
@@ -377,116 +419,126 @@ impl Recorder {
                     .map(|error| div().text_sm().child(error.render())),
             )
             .when(!self.loading_audio, |view| view.child(self.speaker_panel()))
-            .when(!self.transcripts.is_empty(), |view| {
-                view.child(
-                    div()
-                        .flex_1()
-                        .min_h(px(180.))
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .rounded_lg()
-                        .border_1()
-                        .border_color(border)
-                        .bg(card)
-                        .p_3()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .flex_wrap()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .mr_auto()
-                                        .font_semibold()
-                                        .child(t!("transcript").into_owned()),
-                                )
-                                .when(
-                                    matches!(
-                                        self.transcripts.get(&self.selected_transcript),
-                                        Some(crate::storage::Transcript::Structured(_))
-                                    ),
-                                    |card| {
-                                        card.child(
-                                            div()
-                                                .flex()
-                                                .flex_wrap()
-                                                .items_center()
-                                                .gap_3()
-                                                .child(
-                                                    Button::new("include-speakers")
-                                                        .when(self.include_speakers, |button| {
-                                                            button.primary()
-                                                        })
-                                                        .when(!self.include_speakers, |button| {
-                                                            button.outline()
-                                                        })
-                                                        .label(t!("include_speakers").into_owned())
-                                                        .on_click(cx.listener(
-                                                            |this, _, window, cx| {
-                                                                this.include_speakers =
-                                                                    !this.include_speakers;
-                                                                this.select_transcript(
-                                                                    this.selected_transcript
-                                                                        .clone(),
-                                                                    window,
-                                                                    cx,
-                                                                );
-                                                            },
-                                                        )),
-                                                )
-                                                .child(
-                                                    Button::new("include-timestamps")
-                                                        .when(self.include_timestamps, |button| {
-                                                            button.primary()
-                                                        })
-                                                        .when(!self.include_timestamps, |button| {
-                                                            button.outline()
-                                                        })
-                                                        .label(
-                                                            t!("include_timestamps").into_owned(),
-                                                        )
-                                                        .on_click(cx.listener(
-                                                            |this, _, window, cx| {
-                                                                this.include_timestamps =
-                                                                    !this.include_timestamps;
-                                                                this.select_transcript(
-                                                                    this.selected_transcript
-                                                                        .clone(),
-                                                                    window,
-                                                                    cx,
-                                                                );
-                                                            },
-                                                        )),
-                                                ),
-                                        )
-                                    },
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .rounded_md()
-                                        .border_1()
-                                        .border_color(border)
-                                        .overflow_hidden()
-                                        .child(
-                                            div()
-                                                .px_2()
-                                                .text_sm()
-                                                .child(t!("transcript_font").into_owned()),
-                                        )
-                                        .children(
-                                            [
-                                                ("font-smaller", "−", -1, "font_decrease"),
-                                                ("font-larger", "+", 1, "font_increase"),
-                                            ]
-                                            .map(
-                                                |(id, label, step, description)| {
+            .when(
+                self.results_visible && !self.transcripts.is_empty(),
+                |view| {
+                    view.child(
+                        div()
+                            .flex_1()
+                            .min_h(px(180.))
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .rounded(radius)
+                            .border_1()
+                            .border_color(border)
+                            .bg(card)
+                            .p_4()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .mr_auto()
+                                            .font_semibold()
+                                            .child(t!("transcript").into_owned()),
+                                    )
+                                    .when(
+                                        matches!(
+                                            self.transcripts.get(&self.selected_transcript),
+                                            Some(crate::storage::Transcript::Structured(_))
+                                        ),
+                                        |card| {
+                                            card.child(
+                                                div()
+                                                    .flex()
+                                                    .flex_wrap()
+                                                    .items_center()
+                                                    .gap_3()
+                                                    .child(
+                                                        Button::new("include-speakers")
+                                                            .when(self.include_speakers, |button| {
+                                                                button.primary()
+                                                            })
+                                                            .when(
+                                                                !self.include_speakers,
+                                                                |button| button.outline(),
+                                                            )
+                                                            .label(
+                                                                t!("include_speakers").into_owned(),
+                                                            )
+                                                            .on_click(cx.listener(
+                                                                |this, _, window, cx| {
+                                                                    this.include_speakers =
+                                                                        !this.include_speakers;
+                                                                    this.select_transcript(
+                                                                        this.selected_transcript
+                                                                            .clone(),
+                                                                        window,
+                                                                        cx,
+                                                                    );
+                                                                },
+                                                            )),
+                                                    )
+                                                    .child(
+                                                        Button::new("include-timestamps")
+                                                            .when(
+                                                                self.include_timestamps,
+                                                                |button| button.primary(),
+                                                            )
+                                                            .when(
+                                                                !self.include_timestamps,
+                                                                |button| button.outline(),
+                                                            )
+                                                            .label(
+                                                                t!("include_timestamps")
+                                                                    .into_owned(),
+                                                            )
+                                                            .on_click(cx.listener(
+                                                                |this, _, window, cx| {
+                                                                    this.include_timestamps =
+                                                                        !this.include_timestamps;
+                                                                    this.select_transcript(
+                                                                        this.selected_transcript
+                                                                            .clone(),
+                                                                        window,
+                                                                        cx,
+                                                                    );
+                                                                },
+                                                            )),
+                                                    ),
+                                            )
+                                        },
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .h(px(32.))
+                                            .rounded(button_radius)
+                                            .bg(button_background)
+                                            .border_1()
+                                            .border_color(border)
+                                            .overflow_hidden()
+                                            .child(
+                                                div()
+                                                    .px_2()
+                                                    .text_sm()
+                                                    .child(t!("transcript_font").into_owned()),
+                                            )
+                                            .children(
+                                                [
+                                                    ("font-smaller", "−", -1, "font_decrease"),
+                                                    ("font-larger", "+", 1, "font_increase"),
+                                                ]
+                                                .map(|(id, label, step, description)| {
                                                     div().border_l_1().border_color(border).child(
                                                         Button::new(id)
                                                             .ghost()
+                                                            .h(px(30.))
                                                             .rounded_none()
                                                             .label(label)
                                                             .accessibility_label(
@@ -509,70 +561,76 @@ impl Recorder {
                                                                 },
                                                             )),
                                                     )
-                                                },
+                                                }),
                                             ),
-                                        ),
-                                )
-                                .child(
-                                    Button::new("copy-transcript")
-                                        .disabled(!has_text)
-                                        .icon(IconName::Copy)
-                                        .accessibility_label(t!("save_to_clipboard").into_owned())
-                                        .tooltip(t!("save_to_clipboard").into_owned())
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            let text = this.transcript.read(cx).value().to_string();
-                                            cx.write_to_clipboard(ClipboardItem::new_string(text));
-                                        })),
-                                ),
-                        )
-                        .child(
-                            TabBar::new("transcript-tabs")
-                                .underline()
-                                .selected_index(
-                                    self.transcripts
-                                        .keys()
-                                        .position(|model| model == &self.selected_transcript)
-                                        .unwrap_or_default(),
-                                )
-                                .children(self.transcripts.keys().map(|model| {
-                                    let label = model.clone().unwrap_or_else(|| {
-                                        t!("unknown_transcript_model").into_owned()
-                                    });
-                                    Tab::new().label(label)
-                                }))
-                                .on_click(cx.listener(|this, index, window, cx| {
-                                    if let Some(model) =
-                                        this.transcripts.keys().nth(*index).cloned()
-                                    {
-                                        this.select_transcript(model, window, cx);
-                                    }
-                                })),
-                        )
-                        .when(!has_text, |view| {
-                            view.child(
-                                div()
-                                    .text_sm()
-                                    .text_color(muted)
-                                    .child(t!("no_speech").into_owned()),
+                                    )
+                                    .child(
+                                        Button::new("copy-transcript")
+                                            .disabled(!has_text)
+                                            .icon(IconName::Copy)
+                                            .accessibility_label(
+                                                t!("save_to_clipboard").into_owned(),
+                                            )
+                                            .tooltip(t!("save_to_clipboard").into_owned())
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                let text =
+                                                    this.transcript.read(cx).value().to_string();
+                                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                                    text,
+                                                ));
+                                            })),
+                                    ),
                             )
-                        })
-                        .when(has_text, |view| {
-                            view.child(
-                                Textarea::new(&self.transcript)
-                                    .flex_1()
-                                    .min_h(px(96.))
-                                    .text_size(px(f32::from(self.transcript_font_size)))
-                                    .bordered(false)
-                                    .appearance(false)
-                                    .readonly(true),
+                            .child(
+                                TabBar::new("transcript-tabs")
+                                    .underline()
+                                    .selected_index(
+                                        self.transcripts
+                                            .keys()
+                                            .position(|model| model == &self.selected_transcript)
+                                            .unwrap_or_default(),
+                                    )
+                                    .children(self.transcripts.keys().map(|model| {
+                                        let label = model.clone().unwrap_or_else(|| {
+                                            t!("unknown_transcript_model").into_owned()
+                                        });
+                                        Tab::new().label(label)
+                                    }))
+                                    .on_click(cx.listener(|this, index, window, cx| {
+                                        if let Some(model) =
+                                            this.transcripts.keys().nth(*index).cloned()
+                                        {
+                                            this.select_transcript(model, window, cx);
+                                        }
+                                    })),
                             )
-                        }),
-                )
-            });
+                            .when(!has_text, |view| {
+                                view.child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(muted)
+                                        .child(t!("no_speech").into_owned()),
+                                )
+                            })
+                            .when(has_text, |view| {
+                                view.child(
+                                    Textarea::new(&self.transcript)
+                                        .flex_1()
+                                        .min_h(px(96.))
+                                        .text_size(px(f32::from(self.transcript_font_size)))
+                                        .bordered(false)
+                                        .appearance(false)
+                                        .readonly(true),
+                                )
+                            }),
+                    )
+                },
+            );
         div()
             .id("audio-view-scroll")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.audio_scroll)
             .child(content)
     }
 }

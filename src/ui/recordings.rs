@@ -4,6 +4,7 @@ use crate::{
     storage::{SavedRecording, delete_transcripts, saved_recordings, transcript_files},
 };
 use gpui_kit::assets::IconName;
+use gpui_kit::component::StyledExt;
 use gpui_kit::component::{
     ActiveTheme, Disableable, Sizable,
     button::{Button, ButtonVariants},
@@ -163,7 +164,12 @@ impl Recorder {
             .flex_col()
             .gap_4()
             .p_6()
-            .child(div().text_xl().child(t!("saved_recordings").into_owned()))
+            .child(
+                div()
+                    .text_xl()
+                    .font_semibold()
+                    .child(t!("saved_recordings").into_owned()),
+            )
             .child(
                 div()
                     .flex()
@@ -171,7 +177,8 @@ impl Recorder {
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
-                    .rounded_md()
+                    .rounded(cx.theme().radius_lg)
+                    .bg(super::theme::card_background(cx.theme()))
                     .border_1()
                     .border_color(border)
                     .child(header)

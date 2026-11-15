@@ -50,7 +50,7 @@ impl Recorder {
             .id("settings-content")
             .size_full()
             .overflow_y_scroll()
-            .p_4()
+            .p_6()
             .child(
                 div()
                     .flex()
@@ -66,6 +66,10 @@ impl Recorder {
                         GroupBox::new()
                             .id("general-settings")
                             .with_variant(GroupBoxVariant::Outline)
+                            .content_style(
+                                StyleRefinement::default()
+                                    .bg(super::theme::card_background(cx.theme())),
+                            )
                             .gap_3()
                             .child(setting_row(
                                 t!("settings_microphone").into_owned(),
@@ -128,6 +132,7 @@ impl Recorder {
         GroupBox::new()
             .id("model-settings")
             .with_variant(GroupBoxVariant::Outline)
+            .content_style(StyleRefinement::default().bg(super::theme::card_background(cx.theme())))
             .title(
                 div()
                     .flex()

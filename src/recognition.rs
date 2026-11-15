@@ -254,5 +254,5 @@ pub fn format_turns(turns: &[TranscriptTurn], timestamps: bool, speakers: bool) 
             }
         })
         .collect::<Vec<_>>()
-        .join(if timestamps || speakers { "\n\n" } else { " " })
+        .join(if timestamps || speakers { "\n" } else { " " })
 }

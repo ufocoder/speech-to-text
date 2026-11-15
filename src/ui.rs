@@ -6,6 +6,7 @@ mod playback;
 mod recordings;
 mod settings;
 mod speakers;
+pub(crate) mod theme;
 
 use crate::{
     audio::{Audio, Player, Recording},
@@ -40,6 +41,10 @@ pub(crate) struct Recorder {
     recognition_job: Option<(PathBuf, SpeechModel)>,
     session_transcripts: BTreeMap<PathBuf, Transcripts>,
     transcripts: Transcripts,
+    audio_scroll: ScrollHandle,
+    results_visible: bool,
+    recognition_requested: bool,
+    audio_settings_expanded: bool,
     selected_transcript: Option<String>,
     recognition_started: Option<Instant>,
     model_download_started: Option<Instant>,
@@ -96,6 +101,10 @@ impl Recorder {
             recognition_job: None,
             session_transcripts: BTreeMap::new(),
             transcripts: Transcripts::new(),
+            audio_scroll: ScrollHandle::new(),
+            results_visible: false,
+            recognition_requested: false,
+            audio_settings_expanded: false,
             selected_transcript: None,
             recognition_started: None,
             model_download_started: None,
@@ -195,6 +204,10 @@ impl Recorder {
         self.audio_path = None;
         self.playback_error = None;
         self.transcripts.clear();
+        self.audio_scroll = ScrollHandle::new();
+        self.results_visible = false;
+        self.recognition_requested = false;
+        self.audio_settings_expanded = false;
         self.selected_transcript = None;
         self.transcript.update(cx, |input, cx| {
             input.set_value("", window, cx);
@@ -287,8 +300,10 @@ impl Recorder {
                         if let Some(results) = this.session_transcripts.get(&path) {
                             this.transcripts.extend(results.clone());
                         }
+                        let transcript =
+                            transcript.filter(|model| this.transcripts.contains_key(model));
+                        this.results_visible = transcript.is_some();
                         let selected = transcript
-                            .filter(|model| this.transcripts.contains_key(model))
                             .or_else(|| {
                                 let default = Some(this.model.label().to_owned());
                                 this.transcripts
@@ -390,6 +405,7 @@ impl Recorder {
         };
         self.processing_cancel = Arc::default();
         let cancel = self.processing_cancel.clone();
+        self.recognition_requested = true;
         let segments = self.split_speakers(window, cx);
         self.recognition_job = Some((path.clone(), model));
         let source = path.clone();
@@ -447,14 +463,9 @@ impl Recorder {
                         if let Err(error) = save {
                             this.status = Message::Detail("save_text_error", error.to_string());
                         }
-                        let first_result = this.transcripts.is_empty();
-                        let selected = if first_result {
-                            key.clone()
-                        } else {
-                            this.selected_transcript.clone()
-                        };
-                        this.transcripts.insert(key, text);
-                        this.select_transcript(selected, window, cx);
+                        this.transcripts.insert(key.clone(), text);
+                        this.results_visible = true;
+                        this.select_transcript(key, window, cx);
                     }
                     Err(error) if source_is_open => {
                         this.status = Message::Error(format!("{error:#}"))
