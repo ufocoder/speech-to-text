@@ -22,7 +22,9 @@ async function showDownloads() {
   const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`);
   if (!response.ok) return;
   const release = await response.json();
-  document.querySelector('#version').textContent = release.tag_name;
+  for (const label of document.querySelectorAll('[data-app-version]')) {
+    label.textContent = release.tag_name;
+  }
   const platform = await currentPlatform();
   for (const link of document.querySelectorAll('[data-platform]')) {
     const name = `speech-to-text-${release.tag_name}-${link.dataset.platform}.zip`;
