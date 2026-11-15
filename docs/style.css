@@ -35,8 +35,9 @@ p, small { color: var(--muted); }
 .button { display: inline-flex; align-items: center; gap: 16px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 16px; font-size: .875rem; }
 .button:hover { border-color: var(--gold); }
 .primary { background: #e8d0a6; color: var(--ink); font-size: 1rem; font-weight: 650; min-height: 48px; }
+.primary { max-width: 100%; }
 .primary:hover { background: #ebd8b6; }
-.primary span:last-child { border-inline-start: 1px solid rgb(23 19 12 / 25%); padding-inline-start: 16px; }
+.primary span:last-child { flex-shrink: 0; border-inline-start: 1px solid rgb(23 19 12 / 25%); padding-inline-start: 16px; }
 
 .hero-screenshot {
   grid-column: 6 / -1;

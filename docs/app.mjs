@@ -13,8 +13,8 @@ async function currentPlatform() {
 }
 
 const platformLabels = {
-  'macos-arm64': 'macOS Apple Silicon',
-  'macos-x86_64': 'macOS Intel',
+  'macos-arm64': 'Apple Silicon',
+  'macos-x86_64': 'Mac Intel',
   'windows-x64': 'Windows x64',
 };
 
@@ -33,11 +33,11 @@ async function showDownloads() {
       const size = Number.isFinite(asset.size) && asset.size > 0
         ? new Intl.NumberFormat('ru', { maximumFractionDigits: 2 }).format(asset.size / 1_000_000)
         : null;
-      link.textContent = size ? `Скачать · ${size} МБ ↓` : 'Скачать ZIP ↓';
+      link.textContent = size ? `Скачать · ${size} МБ ↓` : 'Скачать ZIP ↓';
       if (platform === link.dataset.platform && size) {
         const button = document.querySelector('#primary-download');
         button.href = url;
-        button.firstElementChild.textContent = `Скачать для ${platformLabels[platform]} · ${size} МБ`;
+        button.firstElementChild.textContent = `Скачать для ${platformLabels[platform]} · ${size} МБ`;
       }
     }
   }
