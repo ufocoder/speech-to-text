@@ -63,9 +63,32 @@ jobs:
           rustup target add x86_64-pc-windows-msvc
           cargo build --release --locked --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Archive Windows executable
+      - name: Package Windows executable and Visual C++ runtime
         run: |
-          Compress-Archive -Path target/x86_64-pc-windows-msvc/release/speech-to-text.exe -DestinationPath "speech-to-text-${env:GITHUB_REF_NAME}-windows-x64.zip"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $install = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $install) { throw 'Visual Studio C++ tools were not found' }
+
+          $redistRoot = Join-Path $install 'VC/Redist/MSVC'
+          $crt = Get-ChildItem $redistRoot -Directory |
+            Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'x64/Microsoft.VC143.CRT' } |
+            Where-Object { Test-Path (Join-Path $_ 'vcruntime140_1.dll') } |
+            Select-Object -First 1
+          if (-not $crt) { throw 'The x64 Visual C++ runtime was not found' }
+
+          $files = @('target/x86_64-pc-windows-msvc/release/speech-to-text.exe')
+          $files += (Get-ChildItem $crt -Filter '*.dll' -File).FullName
+          $archive = "speech-to-text-${env:GITHUB_REF_NAME}-windows-x64.zip"
+          Compress-Archive -LiteralPath $files -DestinationPath $archive
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive).Path)
+          try {
+            foreach ($name in @('speech-to-text.exe', 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+              if (-not $zip.GetEntry($name)) { throw "Windows archive is missing $name" }
+            }
+          } finally {
+            $zip.Dispose()
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: windows
