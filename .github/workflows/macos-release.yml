@@ -71,7 +71,14 @@ jobs:
 
           $redistRoot = Join-Path $install 'VC/Redist/MSVC'
           $crt = Get-ChildItem $redistRoot -Directory |
-            Sort-Object { [version]$_.Name } -Descending |
+            Sort-Object {
+              $version = $null
+              if ([version]::TryParse($_.Name, [ref]$version)) {
+                $version
+              } else {
+                [version]'0.0'
+              }
+            } -Descending |
             ForEach-Object { Join-Path $_.FullName 'x64/Microsoft.VC143.CRT' } |
             Where-Object { Test-Path (Join-Path $_ 'vcruntime140_1.dll') } |
             Select-Object -First 1
