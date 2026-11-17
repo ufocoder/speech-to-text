@@ -35,7 +35,8 @@ async function showDownloads() {
       const size = Number.isFinite(asset.size) && asset.size > 0
         ? new Intl.NumberFormat('ru', { maximumFractionDigits: 2 }).format(asset.size / 1_000_000)
         : null;
-      link.textContent = size ? `Скачать · ${size} МБ ↓` : 'Скачать ZIP ↓';
+      link.firstElementChild.textContent = size ? `Скачать · ${size} МБ` : 'Скачать ZIP';
+      link.lastElementChild.textContent = '↓';
       if (platform === link.dataset.platform && size) {
         const button = document.querySelector('#primary-download');
         button.href = url;
