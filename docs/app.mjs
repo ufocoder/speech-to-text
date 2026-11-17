@@ -33,14 +33,14 @@ async function showDownloads() {
     if (asset) {
       link.href = url;
       const size = Number.isFinite(asset.size) && asset.size > 0
-        ? new Intl.NumberFormat('ru', { maximumFractionDigits: 2 }).format(asset.size / 1_000_000)
+        ? new Intl.NumberFormat('en', { maximumFractionDigits: 2 }).format(asset.size / 1_000_000)
         : null;
-      link.firstElementChild.textContent = size ? `Скачать · ${size} МБ` : 'Скачать ZIP';
+      link.firstElementChild.textContent = size ? `Download · ${size} MB` : 'Download ZIP';
       link.lastElementChild.textContent = '↓';
       if (platform === link.dataset.platform && size) {
         const button = document.querySelector('#primary-download');
         button.href = url;
-        button.firstElementChild.textContent = `Скачать для ${platformLabels[platform]} · ${size} МБ`;
+        button.firstElementChild.textContent = `Download for ${platformLabels[platform]} · ${size} MB`;
       }
     }
   }

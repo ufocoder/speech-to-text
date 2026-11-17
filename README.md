@@ -1,37 +1,30 @@
 # S2T (Speech-to-text)
 
-S2T записывает звук и превращает аудио в текст на вашем компьютере. Приложение бесплатное, с открытым исходным кодом. После скачивания моделей распознавание работает офлайн.
+S2T records audio and transcribes it on your computer. It is free and open source. Once you download the models, transcription works offline.
 
-[Скачать S2T на GitHub Releases](https://github.com/ufocoder/speech-to-text/releases/latest)
+[Download S2T from GitHub Releases](https://github.com/ufocoder/speech-to-text/releases/latest)
 
-| Платформа | Окончание имени ZIP |
+| Platform | ZIP filename suffix |
 | --- | --- |
-| macOS с Apple Silicon | `macos-arm64.zip` |
-| macOS с Intel | `macos-x86_64.zip` |
-| Windows 64-бит | `windows-x64.zip` |
+| macOS (Apple Silicon) | `macos-arm64.zip` |
+| macOS (Intel) | `macos-x86_64.zip` |
+| Windows (64-bit) | `windows-x64.zip` |
 
-![Интерфейс приложения S2T](docs/image.webp)
+![S2T desktop app interface](docs/image.webp)
 
-## Первый запуск
+## Recordings and transcripts
 
-1. Скачайте ZIP для своего компьютера, распакуйте его и запустите приложение.
-2. В «Настройках» скачайте модель распознавания. По умолчанию выбрана Parakeet v3 INT8. Для разделения речи по говорящим скачайте модель из отдельной таблицы в настройках.
-3. Нажмите «Сделать запись» или «Открыть аудиофайл». Поддерживаются WAV, MP3, FLAC и Ogg Vorbis. Для записи на macOS разрешите приложению доступ к микрофону.
-4. Нажмите «Распознать». Выбор моделей для текущего файла доступен под плеером через «Настройки →». В расшифровке можно включить тайминги и отметки говорящих, изменить размер текста и скопировать результат.
+- Click the waveform to jump to any point in a recording.
+- The recordings list shows audio files in the selected folder, their recording times, and the models used for saved transcripts.
+- You can save transcripts from multiple models for the same audio file. Open the file and select **Past results →** to view them.
+- In Settings, you can change the microphone, recordings folder, and interface language. The interface is available in English and Russian.
 
-## Аудиозаписи и результаты
+By default, S2T stores recordings in `recordings` and models in `.model-cache/hub`. The packaged macOS app puts these folders under `~/Library/Application Support/Speech to Text/`. On Windows, they are under `%LOCALAPPDATA%\Speech to Text\`.
 
-- Плеер показывает звуковую волну. Нажмите на неё, чтобы перейти к нужному месту записи.
-- «Аудиозаписи» показывает файлы из выбранной папки, время записи и модели, которыми получены сохранённые расшифровки.
-- Для одного файла можно хранить результаты нескольких моделей. При обычном открытии файла сохранённый текст доступен через «Прошлые результаты →».
-- В «Настройках» можно сменить микрофон, папку записей и язык интерфейса. Доступны русский и английский.
+## Development
 
-По умолчанию приложение сохраняет записи в подпапку `recordings`, а модели в `.model-cache/hub`. В пакете macOS эти подпапки находятся в `~/Library/Application Support/Speech to Text/`, в Windows — в `%LOCALAPPDATA%\Speech to Text\`.
+[Build, test, preview the website, and publish releases](docs/development.md)
 
-## Разработка
+## License
 
-[Сборка, тестирование, локальный сайт и релизы](docs/development.md)
-
-## Лицензия
-
-Код проекта распространяется по [лицензии MIT](LICENSE).
+S2T is distributed under the [MIT License](LICENSE).

@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="S2T (Speech-to-text) — локальная расшифровка аудио для macOS и Windows.">
-  <title>S2T (Speech-to-text) — распознавание речи</title>
+  <meta name="description" content="S2T (Speech-to-text) — Offline audio transcription for macOS and Windows.">
+  <title>S2T (Speech-to-text) — Offline speech-to-text</title>
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./app.mjs"></script>
 </head>
@@ -24,8 +24,8 @@
   <!-- /Yandex.Metrika counter -->
   <header class="wrap site-header">
     <a class="brand" href="#"><img src="./microphone.svg" width="32" height="32" alt="">S2T</a>
-    <nav aria-label="Навигация">
-      <a href="#features">Возможности</a>
+    <nav aria-label="Navigation">
+      <a href="#features">Features</a>
       <a href="#faq">FAQ</a>
       <a href="https://github.com/ufocoder/speech-to-text">GitHub ↗</a>
     </nav>
@@ -33,61 +33,62 @@
   <main>
     <section class="hero wrap grid" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <h1 id="hero-title">От записи<br>к расшифровке</h1>
-        <p>Преобразуйте аудио в текст с таймингами и отметками говорящих. S2T обрабатывает записи на вашем компьютере.</p>
+        <h1 id="hero-title">From recording<br>to transcript</h1>
+        <p>Turn audio into text with timestamps and speaker labels. S2T processes recordings on your computer.</p>
+        <p class="hero-promise">Always free. Always self-hosted.</p>
         <div class="hero-download">
-          <a class="button primary" id="primary-download" href="#downloads"><span>Скачать</span><span aria-hidden="true">↓</span></a>
+          <a class="button primary" id="primary-download" href="#downloads"><span>Download</span><span aria-hidden="true">↓</span></a>
           <small data-app-version>v0.4.3</small>
         </div>
-        <small>macOS и Windows · бесплатно и с открытым кодом</small>
+        <small>macOS and Windows</small>
       </div>
-      <img class="hero-screenshot" src="./image.webp" width="2190" height="1826" alt="Интерфейс приложения S2T">
+      <img class="hero-screenshot" src="./image.webp" width="2190" height="1826" alt="S2T desktop app interface">
     </section>
     <section class="wrap section" id="features" aria-labelledby="features-title">
-      <h2 id="features-title">Возможности S2T</h2>
+      <h2 id="features-title">S2T features</h2>
       <div class="grid features">
-        <article class="panel"><h3>Запись и плеер<span class="icon" aria-hidden="true">◉</span></h3><p>Выберите микрофон или откройте аудиофайл. Перемещайтесь по записи с помощью звуковой волны.</p></article>
-        <article class="panel"><h3>Локальная обработка<span class="icon" aria-hidden="true">⌁</span></h3><p>Распознавайте речь без отправки аудио на сервер. После загрузки моделей обработка работает офлайн.</p></article>
-        <article class="panel"><h3>Несколько моделей<span class="icon" aria-hidden="true">≋</span></h3><p>Сравнивайте расшифровки одной записи. S2T хранит результаты разных моделей отдельно.</p></article>
+        <article class="panel"><h3>Recording and playback<span class="icon" aria-hidden="true">◉</span></h3><p>Choose a microphone or open an audio file. Use the waveform to jump to any point in the recording.</p></article>
+        <article class="panel"><h3>On-device processing<span class="icon" aria-hidden="true">⌁</span></h3><p>Transcribe audio on your computer. Once you download the models, transcription works offline.</p></article>
+        <article class="panel"><h3>Multiple models<span class="icon" aria-hidden="true">≋</span></h3><p>Compare transcripts from different models for the same recording. S2T saves each result separately.</p></article>
       </div>
     </section>
     <section class="wrap section" aria-labelledby="steps-title">
-      <h2 id="steps-title">Как это работает</h2>
+      <h2 id="steps-title">How it works</h2>
       <ol class="grid steps">
-        <li><h3>Добавьте аудио</h3><p>Запишите речь в S2T или откройте готовый файл.</p></li>
-        <li><h3>Запустите распознавание</h3><p>Выберите скачанную модель и нажмите «Распознать».</p></li>
-        <li><h3>Скопируйте текст</h3><p>Включите тайминги и отметки говорящих, если они нужны.</p></li>
+        <li><h3>Add audio</h3><p>Record audio in S2T or open an existing file.</p></li>
+        <li><h3>Transcribe</h3><p>Choose a downloaded model and click Transcribe.</p></li>
+        <li><h3>Copy the transcript</h3><p>Include timestamps and speaker labels if you need them.</p></li>
       </ol>
     </section>
     <section class="wrap section grid" id="faq" aria-labelledby="faq-title">
-      <h2 id="faq-title">Частые вопросы</h2>
+      <h2 id="faq-title">Frequently asked questions</h2>
       <div class="questions">
-        <article><h3>На каких языках доступен интерфейс?</h3><p>Интерфейс S2T доступен на русском и английском. Язык можно сменить в настройках приложения.</p></article>
-        <article><h3>Нужен ли интернет?</h3><p>Интернет нужен для скачивания приложения и моделей. Распознавание выполняется локально.</p></article>
-        <article><h3>Поддерживается ли русский язык?</h3><p>Да. Русский поддерживают, например, Parakeet v3, GigaAM-v3 и T-one. Список языков зависит от модели.</p></article>
-        <article><h3>Сколько стоит S2T?</h3><p>Приложение бесплатное. Исходный код доступен на GitHub.</p></article>
-        <article><h3>Куда сообщить об ошибке или предложить улучшение?</h3><p>Напишите в <a href="https://github.com/ufocoder/speech-to-text/issues"><u>GitHub Issues</u></a>.</p></article>
+        <article><h3>What languages is the app available in?</h3><p>The interface is available in English and Russian. You can switch languages in Settings.</p></article>
+        <article><h3>Do I need an internet connection?</h3><p>You need internet access to download the app and models. Transcription runs on your computer.</p></article>
+        <article><h3>Can S2T transcribe Russian?</h3><p>Yes. Parakeet v3, GigaAM-v3, and T-one all support Russian. Available languages vary by model.</p></article>
+        <article><h3>How much does S2T cost?</h3><p>S2T is free. The source code is available on GitHub.</p></article>
+        <article><h3>Where can I report a bug or suggest an improvement?</h3><p>Open an issue on <a href="https://github.com/ufocoder/speech-to-text/issues"><u>GitHub Issues</u></a>.</p></article>
       </div>
     </section>
     <section class="downloads wrap section grid" id="downloads" aria-labelledby="download-title">
-      <div><h2 id="download-title">Скачайте S2T</h2><p>Выберите сборку для своего компьютера. Модели можно скачать отдельно в настройках приложения.</p></div>
+      <div><h2 id="download-title">Download S2T</h2><p>Choose a build for your computer. You can download models separately in the app settings.</p></div>
       <div class="download-card">
-        <header><h3>Скачать S2T</h3><small data-app-version>v0.4.3</small></header>
+        <header><h3>Download S2T</h3><small data-app-version>v0.4.3</small></header>
         <div class="row">
           <span>macOS<small>Apple Silicon · .zip</small></span>
-          <a data-platform="macos-arm64" class="button release-download" href="https://github.com/ufocoder/speech-to-text/releases"><span>Релизы</span><span class="download-arrow" aria-hidden="true">↗</span></a>
+          <a data-platform="macos-arm64" class="button release-download" href="https://github.com/ufocoder/speech-to-text/releases"><span>Releases</span><span class="download-arrow" aria-hidden="true">↗</span></a>
         </div>
         <div class="row">
           <span>macOS<small>Intel · .zip</small></span>
-          <a data-platform="macos-x86_64" class="button release-download" href="https://github.com/ufocoder/speech-to-text/releases"><span>Релизы</span><span class="download-arrow" aria-hidden="true">↗</span></a>
+          <a data-platform="macos-x86_64" class="button release-download" href="https://github.com/ufocoder/speech-to-text/releases"><span>Releases</span><span class="download-arrow" aria-hidden="true">↗</span></a>
         </div>
         <div class="row">
           <span>Windows<small>x64 · .zip</small></span>
-          <a data-platform="windows-x64" class="button release-download" href="https://github.com/ufocoder/speech-to-text/releases"><span>Релизы</span><span class="download-arrow" aria-hidden="true">↗</span></a>
+          <a data-platform="windows-x64" class="button release-download" href="https://github.com/ufocoder/speech-to-text/releases"><span>Releases</span><span class="download-arrow" aria-hidden="true">↗</span></a>
         </div>
         <div class="download-footer">
-          <small>Архивы доступны на GitHub Releases</small>
-          <a href="https://github.com/ufocoder/speech-to-text/releases">Все релизы ↗</a>
+          <small>ZIP files are hosted on GitHub Releases</small>
+          <a href="https://github.com/ufocoder/speech-to-text/releases">All releases ↗</a>
         </div>
       </div>
     </section>
