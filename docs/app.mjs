@@ -25,6 +25,13 @@ async function showDownloads() {
   for (const label of document.querySelectorAll('[data-app-version]')) {
     label.textContent = release.tag_name;
   }
+  const summary = document.querySelector('[data-release-summary]');
+  const published = Date.parse(release.published_at);
+  summary.textContent = `Latest version ${release.tag_name}`;
+  if (Number.isFinite(published)) {
+    const date = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeZone: 'UTC' }).format(published);
+    summary.textContent += ` · Published ${date}`;
+  }
   const platform = await currentPlatform();
   for (const link of document.querySelectorAll('[data-platform]')) {
     const name = `speech-to-text-${release.tag_name}-${link.dataset.platform}.zip`;
