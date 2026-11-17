@@ -6,6 +6,9 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/pages.yml'
+  workflow_run:
+    workflows: [Desktop Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +22,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -26,9 +30,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: main
           persist-credentials: false
       - name: Check JavaScript
         run: node --check docs/app.mjs
+      - name: Include latest release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" \
+            --jq '{tag_name, published_at, assets: [.assets[] | {name, size, browser_download_url}]}' > docs/release.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -36,7 +36,7 @@ p, small { color: var(--muted); }
 .button { display: inline-flex; align-items: center; gap: 16px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 16px; font-size: .875rem; }
 .button:hover { border-color: var(--gold); }
 .hero-download { display: grid; width: fit-content; max-width: 100%; gap: 10px; }
-.hero-download small { margin: 0; text-align: center; }
+.hero-download small { margin: 0; text-align: start; }
 .primary {
   justify-content: space-between;
   min-height: 54px;

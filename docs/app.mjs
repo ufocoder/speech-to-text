@@ -19,7 +19,10 @@ const platformLabels = {
 };
 
 async function showDownloads() {
-  const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`);
+  const snapshot = await fetch(new URL('./release.json', import.meta.url)).catch(() => null);
+  const response = snapshot?.ok
+    ? snapshot
+    : await fetch(`https://api.github.com/repos/${repo}/releases/latest`);
   if (!response.ok) return;
   const release = await response.json();
   for (const label of document.querySelectorAll('[data-app-version]')) {
