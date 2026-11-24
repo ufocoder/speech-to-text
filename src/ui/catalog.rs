@@ -55,17 +55,27 @@ impl Recorder {
             })
             .collect();
         for model in SpeechModel::ALL {
-            let request =
-                cx.background_spawn(
-                    async move { model.check_updates(&crate::storage::model_cache()) },
-                );
+            let request = cx.background_spawn(async move {
+                let cache = crate::storage::model_cache();
+                model.check_updates(&cache)?;
+                Ok::<_, anyhow::Error>(model.needs_update(&cache))
+            });
             self.model_update_tasks
                 .push(cx.spawn(async move |this, cx| {
                     let result = request.await;
                     let _ = this.update(cx, |this, cx| {
-                        if let Err(error) = result {
-                            this.settings_error =
-                                Some(crate::i18n::Message::Error(format!("{error:#}")));
+                        match result {
+                            Ok(available) => {
+                                this.available_model_updates
+                                    .retain(|existing| *existing != model);
+                                if available {
+                                    this.available_model_updates.push(model);
+                                }
+                            }
+                            Err(error) => {
+                                this.settings_error =
+                                    Some(crate::i18n::Message::Error(format!("{error:#}")))
+                            }
                         }
                         cx.notify();
                     });

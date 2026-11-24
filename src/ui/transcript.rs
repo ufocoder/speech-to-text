@@ -19,7 +19,7 @@ impl Recorder {
             .as_ref()
             .map_or(self.playback_position, crate::audio::Player::position);
         let playing = self.player.as_ref().is_some_and(|player| player.playing);
-        let font_size = f32::from(self.transcript_font_size);
+        let font_size = f32::from(self.transcript_view.font_size);
         let scale = font_size / 16.;
         let label_size = font_size * 0.8;
         let line_height = font_size * 1.5;
@@ -59,7 +59,7 @@ impl Recorder {
                             .py_1()
                             .rounded(px(9. * scale))
                             .when(
-                                self.highlight_speech
+                                self.transcript_view.highlight
                                     && playing
                                     && position >= turn.start
                                     && position < turn.end,
@@ -70,7 +70,7 @@ impl Recorder {
                                     .flex()
                                     .flex_shrink_0()
                                     .gap_1()
-                                    .when(self.include_timestamps, |labels| {
+                                    .when(self.transcript_view.timestamps, |labels| {
                                         labels.child(
                                             div()
                                                 .px(px(8. * scale))
@@ -95,7 +95,7 @@ impl Recorder {
                                         )
                                     })
                                     .when_some(
-                                        turn.speaker.filter(|_| self.include_speakers),
+                                        turn.speaker.filter(|_| self.transcript_view.speakers),
                                         |labels, speaker| {
                                             labels.child(
                                                 div()

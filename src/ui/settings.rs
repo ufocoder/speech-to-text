@@ -190,7 +190,7 @@ impl Recorder {
     fn model_row(&self, model: SpeechModel, cached: bool, cx: &Context<Self>) -> Div {
         let active = self.model == model;
         let downloading = self.downloading_model == Some(model);
-        let update_available = cached && model.needs_update(&model_cache());
+        let update_available = cached && self.available_model_updates.contains(&model);
         let blocked = self.model_actions_blocked();
         let view = cx.entity().downgrade();
         let muted = cx.theme().muted_foreground;
@@ -408,8 +408,11 @@ impl Recorder {
             let _ = this.update(cx, |this, cx| {
                 this.downloading_model = None;
                 this.download_progress_task = None;
-                if let Err(error) = result {
-                    this.settings_error = Some(Message::Error(format!("{error:#}")));
+                match result {
+                    Ok(_) => this
+                        .available_model_updates
+                        .retain(|existing| *existing != model),
+                    Err(error) => this.settings_error = Some(Message::Error(format!("{error:#}"))),
                 }
                 cx.notify();
             });

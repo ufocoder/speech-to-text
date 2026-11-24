@@ -26,6 +26,26 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use std::{collections::BTreeMap, path::PathBuf};
 
+struct TranscriptView {
+    timestamps: bool,
+    highlight: bool,
+    speakers: bool,
+    visible: bool,
+    font_size: u8,
+}
+
+impl Default for TranscriptView {
+    fn default() -> Self {
+        Self {
+            timestamps: true,
+            highlight: false,
+            speakers: true,
+            visible: false,
+            font_size: 16,
+        }
+    }
+}
+
 pub(crate) struct Recorder {
     recording: Option<Recording>,
     speaker_download: Option<usize>,
@@ -34,9 +54,6 @@ pub(crate) struct Recorder {
     opening_task: Option<Task<()>>,
     speaker_model: crate::models::SpeakerModel,
     default_speaker_model: crate::models::SpeakerModel,
-    include_timestamps: bool,
-    highlight_speech: bool,
-    include_speakers: bool,
     speaker_task: Option<Task<()>>,
     speaker_result: Option<Result<Vec<sherpa_onnx::OfflineSpeakerDiarizationSegment>, String>>,
     microphone: Option<(SharedString, cpal::Device)>,
@@ -44,7 +61,6 @@ pub(crate) struct Recorder {
     session_transcripts: BTreeMap<PathBuf, Transcripts>,
     transcripts: Transcripts,
     audio_scroll: ScrollHandle,
-    results_visible: bool,
     recognition_requested: bool,
     audio_settings_expanded: bool,
     selected_transcript: Option<String>,
@@ -63,6 +79,7 @@ pub(crate) struct Recorder {
     model_languages_expanded: bool,
     model_update_dates: BTreeMap<&'static str, chrono::NaiveDate>,
     model_update_tasks: Vec<Task<()>>,
+    available_model_updates: Vec<SpeechModel>,
     downloading_model: Option<SpeechModel>,
     download_percent: u8,
     download_progress_task: Option<Task<()>>,
@@ -71,8 +88,8 @@ pub(crate) struct Recorder {
     language: Language,
     settings_open: bool,
     settings_error: Option<Message>,
-    transcript_font_size: u8,
     transcript: Entity<TextareaState>,
+    transcript_view: TranscriptView,
     audio: Option<Arc<Audio>>,
     audio_path: Option<PathBuf>,
     saved_recordings: Option<Result<Vec<SavedRecording>, Message>>,
@@ -95,9 +112,6 @@ impl Recorder {
             opening_task: None,
             speaker_model: crate::storage::default_speaker_model(),
             default_speaker_model: crate::storage::default_speaker_model(),
-            include_timestamps: true,
-            highlight_speech: false,
-            include_speakers: true,
             speaker_task: None,
             speaker_result: None,
             microphone: None,
@@ -105,7 +119,6 @@ impl Recorder {
             session_transcripts: BTreeMap::new(),
             transcripts: Transcripts::new(),
             audio_scroll: ScrollHandle::new(),
-            results_visible: false,
             recognition_requested: false,
             audio_settings_expanded: false,
             selected_transcript: None,
@@ -124,6 +137,7 @@ impl Recorder {
             model_languages_expanded: false,
             model_update_dates: BTreeMap::new(),
             model_update_tasks: Vec::new(),
+            available_model_updates: Vec::new(),
             downloading_model: None,
             download_percent: 0,
             download_progress_task: None,
@@ -132,8 +146,8 @@ impl Recorder {
             language,
             settings_open: false,
             settings_error: None,
-            transcript_font_size: 16,
             transcript,
+            transcript_view: TranscriptView::default(),
             audio: None,
             audio_path: None,
             saved_recordings: None,
@@ -208,7 +222,7 @@ impl Recorder {
         self.playback_error = None;
         self.transcripts.clear();
         self.audio_scroll = ScrollHandle::new();
-        self.results_visible = false;
+        self.transcript_view.visible = false;
         self.recognition_requested = false;
         self.audio_settings_expanded = false;
         self.selected_transcript = None;
@@ -302,7 +316,7 @@ impl Recorder {
                         }
                         let transcript =
                             transcript.filter(|model| this.transcripts.contains_key(model));
-                        this.results_visible = transcript.is_some();
+                        this.transcript_view.visible = transcript.is_some();
                         let selected = transcript
                             .or_else(|| {
                                 let default = Some(this.model.label().to_owned());
@@ -335,9 +349,11 @@ impl Recorder {
     ) {
         let text = match self.transcripts.get(&model) {
             Some(crate::storage::Transcript::Legacy(text)) => text.clone(),
-            Some(crate::storage::Transcript::Structured(turns)) => {
-                recognition::format_turns(turns, self.include_timestamps, self.include_speakers)
-            }
+            Some(crate::storage::Transcript::Structured(turns)) => recognition::format_turns(
+                turns,
+                self.transcript_view.timestamps,
+                self.transcript_view.speakers,
+            ),
             None => String::new(),
         };
         self.transcript
@@ -464,7 +480,7 @@ impl Recorder {
                             this.status = Message::Detail("save_text_error", error.to_string());
                         }
                         this.transcripts.insert(key.clone(), text);
-                        this.results_visible = true;
+                        this.transcript_view.visible = true;
                         this.select_transcript(key, window, cx);
                     }
                     Err(error) if source_is_open => {
