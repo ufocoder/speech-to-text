@@ -61,13 +61,17 @@ fn check() -> anyhow::Result<Option<Release>> {
         .timeout_global(Some(Duration::from_secs(15)))
         .build()
         .new_agent();
-    let mut response = agent
-        .get("https://api.github.com/repos/ufocoder/speech-to-text/releases/latest")
-        .header("User-Agent", "Speech-to-Text")
-        .header("Accept", "application/vnd.github+json")
-        .call()?;
-    let release: Release =
-        serde_json::from_reader(response.body_mut().as_reader().take(1_000_000))?;
+    let fetch_release = |url: &str| -> anyhow::Result<Release> {
+        let mut response = agent.get(url).header("User-Agent", "S2T").call()?;
+        let release: Release =
+            serde_json::from_reader(response.body_mut().as_reader().take(1_000_000))?;
+        semver::Version::parse(release.tag_name.trim_start_matches('v'))?;
+        Ok(release)
+    };
+    let release =
+        fetch_release("https://ufocoder.github.io/speech-to-text/release.json").or_else(|_| {
+            fetch_release("https://api.github.com/repos/ufocoder/speech-to-text/releases/latest")
+        })?;
     let available = semver::Version::parse(release.tag_name.trim_start_matches('v'))?;
     let current = semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
     Ok((available > current).then_some(release))

@@ -6410,7 +6410,7 @@ dependencies = [
 
 [[package]]
 name = "speech-to-text"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "chrono",
