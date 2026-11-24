@@ -20,7 +20,7 @@ impl Recorder {
             .icon(IconName::Archive)
             .when(self.saved_recordings.is_some(), |button| button.primary())
             .when(self.saved_recordings.is_none(), |button| button.ghost())
-            .disabled(self.loading_audio || self.choosing_file || self.recording.is_some())
+            .disabled(self.opening.loading || self.opening.choosing || self.recording.is_some())
             .on_click(cx.listener(|this, _, _, cx| {
                 this.settings_open = false;
                 this.refresh_recordings(cx);

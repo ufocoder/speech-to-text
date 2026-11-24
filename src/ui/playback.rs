@@ -10,46 +10,46 @@ impl Recorder {
         let Some(audio) = self.audio.clone() else {
             return;
         };
-        self.playback_error = None;
-        if let Some(player) = &mut self.player {
+        self.playback.error = None;
+        if let Some(player) = &mut self.playback.player {
             if !player.playing && player.position() >= audio.duration() {
                 player.seek(0.);
             }
             if let Err(error) = player.toggle() {
-                self.player = None;
-                self.playback_error = Some(Message::Detail("playback_error", format!("{error:#}")));
+                self.playback.player = None;
+                self.playback.error = Some(Message::Detail("playback_error", format!("{error:#}")));
             }
         } else {
             let duration = audio.duration();
-            let position = if self.playback_position >= duration {
+            let position = if self.playback.position >= duration {
                 0.
             } else {
-                self.playback_position
+                self.playback.position
             };
             match Player::start(audio, position) {
                 Ok(player) => {
-                    self.player = Some(player);
+                    self.playback.player = Some(player);
                     let executor = cx.background_executor().clone();
-                    self.playback_task = Some(cx.spawn_in(window, async move |this, cx| {
+                    self.playback.task = Some(cx.spawn_in(window, async move |this, cx| {
                         loop {
                             executor.timer(Duration::from_millis(50)).await;
                             let active = this.update(cx, |this, cx| {
-                                let Some(player) = &this.player else {
+                                let Some(player) = &this.playback.player else {
                                     return false;
                                 };
                                 if player.failed() {
-                                    this.player = None;
-                                    this.playback_error =
+                                    this.playback.player = None;
+                                    this.playback.error =
                                         Some(Message::Text("output_disconnected"));
                                 } else if player.playing {
                                     let position = player.position();
                                     if position >= duration {
-                                        this.player = None;
+                                        this.playback.player = None;
                                     }
-                                    this.playback_position = position.min(duration);
+                                    this.playback.position = position.min(duration);
                                 }
                                 cx.notify();
-                                this.player.is_some()
+                                this.playback.player.is_some()
                             });
                             if !matches!(active, Ok(true)) {
                                 break;
@@ -58,7 +58,7 @@ impl Recorder {
                     }));
                 }
                 Err(error) => {
-                    self.playback_error =
+                    self.playback.error =
                         Some(Message::Detail("playback_error", format!("{error:#}")))
                 }
             }
@@ -68,9 +68,9 @@ impl Recorder {
 
     pub(super) fn seek_playback(&mut self, position: f64, cx: &mut Context<Self>) {
         if let Some(audio) = &self.audio {
-            self.playback_position = position.clamp(0., audio.duration());
-            if let Some(player) = &self.player {
-                player.seek(self.playback_position);
+            self.playback.position = position.clamp(0., audio.duration());
+            if let Some(player) = &self.playback.player {
+                player.seek(self.playback.position);
             }
             cx.notify();
         }
@@ -80,9 +80,10 @@ impl Recorder {
         let audio = self.audio.as_ref()?;
         let duration = audio.duration();
         let position = self
+            .playback
             .player
             .as_ref()
-            .map_or(self.playback_position, Player::position);
+            .map_or(self.playback.position, Player::position);
         let progress = (position / duration).clamp(0., 1.);
         let theme = cx.theme();
         let (played, pending, background, playhead): (Hsla, Hsla, Hsla, Hsla) = if theme.is_dark() {
@@ -126,9 +127,10 @@ impl Recorder {
             }))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 let position = this
+                    .playback
                     .player
                     .as_ref()
-                    .map_or(this.playback_position, Player::position);
+                    .map_or(this.playback.position, Player::position);
                 let target = match event.keystroke.key.as_str() {
                     "left" => position - 5.,
                     "right" => position + 5.,
@@ -173,7 +175,12 @@ impl Recorder {
                 .absolute()
                 .inset_0(),
             );
-        let label = if self.player.as_ref().is_some_and(|player| player.playing) {
+        let label = if self
+            .playback
+            .player
+            .as_ref()
+            .is_some_and(|player| player.playing)
+        {
             t!("pause").into_owned()
         } else {
             t!("play").into_owned()

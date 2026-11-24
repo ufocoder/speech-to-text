@@ -46,30 +46,54 @@ impl Default for TranscriptView {
     }
 }
 
+struct PlaybackState {
+    player: Option<Player>,
+    position: f64,
+    task: Option<Task<()>>,
+    error: Option<Message>,
+}
+
+struct AudioOpening {
+    loading: bool,
+    task: Option<Task<()>>,
+    progress: Arc<AtomicU8>,
+    choosing: bool,
+}
+
+struct RecognitionState {
+    task: Option<Task<()>>,
+    job: Option<(PathBuf, SpeechModel)>,
+    started: Option<Instant>,
+    progress: Arc<AtomicU8>,
+    requested: bool,
+}
+
+struct ModelDownload {
+    model: Option<SpeechModel>,
+    percent: u8,
+    progress_task: Option<Task<()>>,
+    started: Option<Instant>,
+}
+
 pub(crate) struct Recorder {
+    model_download: ModelDownload,
+    recognition: RecognitionState,
+    opening: AudioOpening,
+    playback: PlaybackState,
     recording: Option<Recording>,
     speaker_download: Option<usize>,
     processing_cancel: Arc<std::sync::atomic::AtomicBool>,
-    recognition_task: Option<Task<()>>,
-    opening_task: Option<Task<()>>,
     speaker_model: crate::models::SpeakerModel,
     default_speaker_model: crate::models::SpeakerModel,
     speaker_task: Option<Task<()>>,
     speaker_result: Option<Result<Vec<sherpa_onnx::OfflineSpeakerDiarizationSegment>, String>>,
     microphone: Option<(SharedString, cpal::Device)>,
-    recognition_job: Option<(PathBuf, SpeechModel)>,
     session_transcripts: BTreeMap<PathBuf, Transcripts>,
     transcripts: Transcripts,
     audio_scroll: ScrollHandle,
-    recognition_requested: bool,
     audio_settings_expanded: bool,
     selected_transcript: Option<String>,
-    recognition_started: Option<Instant>,
-    model_download_started: Option<Instant>,
     speaker_download_started: Option<Instant>,
-    loading_audio: bool,
-    opening_progress: Arc<AtomicU8>,
-    recognition_progress: Arc<AtomicU8>,
     speaker_download_progress: Arc<AtomicU8>,
     speaker_started: Option<Instant>,
     speaker_progress: Arc<AtomicU8>,
@@ -80,10 +104,6 @@ pub(crate) struct Recorder {
     model_update_dates: BTreeMap<&'static str, chrono::NaiveDate>,
     model_update_tasks: Vec<Task<()>>,
     available_model_updates: Vec<SpeechModel>,
-    downloading_model: Option<SpeechModel>,
-    download_percent: u8,
-    download_progress_task: Option<Task<()>>,
-    choosing_file: bool,
     status: Message,
     language: Language,
     settings_open: bool,
@@ -93,10 +113,6 @@ pub(crate) struct Recorder {
     audio: Option<Arc<Audio>>,
     audio_path: Option<PathBuf>,
     saved_recordings: Option<Result<Vec<SavedRecording>, Message>>,
-    player: Option<Player>,
-    playback_position: f64,
-    playback_task: Option<Task<()>>,
-    playback_error: Option<Message>,
 }
 
 impl Recorder {
@@ -105,29 +121,45 @@ impl Recorder {
             TextareaState::new(window, cx).placeholder(t!("transcript_placeholder").into_owned())
         });
         Self {
+            model_download: ModelDownload {
+                model: None,
+                percent: 0,
+                progress_task: None,
+                started: None,
+            },
+            recognition: RecognitionState {
+                task: None,
+                job: None,
+                started: None,
+                progress: Arc::new(AtomicU8::new(0)),
+                requested: false,
+            },
+            opening: AudioOpening {
+                loading: false,
+                task: None,
+                progress: Arc::new(AtomicU8::new(0)),
+                choosing: false,
+            },
+            playback: PlaybackState {
+                player: None,
+                position: 0.,
+                task: None,
+                error: None,
+            },
             recording: None,
             speaker_download: None,
             processing_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            recognition_task: None,
-            opening_task: None,
             speaker_model: crate::storage::default_speaker_model(),
             default_speaker_model: crate::storage::default_speaker_model(),
             speaker_task: None,
             speaker_result: None,
             microphone: None,
-            recognition_job: None,
             session_transcripts: BTreeMap::new(),
             transcripts: Transcripts::new(),
             audio_scroll: ScrollHandle::new(),
-            recognition_requested: false,
             audio_settings_expanded: false,
             selected_transcript: None,
-            recognition_started: None,
-            model_download_started: None,
             speaker_download_started: None,
-            loading_audio: false,
-            opening_progress: Arc::new(AtomicU8::new(0)),
-            recognition_progress: Arc::new(AtomicU8::new(0)),
             speaker_download_progress: Arc::new(AtomicU8::new(0)),
             speaker_started: None,
             speaker_progress: Arc::new(AtomicU8::new(0)),
@@ -138,10 +170,6 @@ impl Recorder {
             model_update_dates: BTreeMap::new(),
             model_update_tasks: Vec::new(),
             available_model_updates: Vec::new(),
-            downloading_model: None,
-            download_percent: 0,
-            download_progress_task: None,
-            choosing_file: false,
             status: Message::Empty,
             language,
             settings_open: false,
@@ -151,16 +179,12 @@ impl Recorder {
             audio: None,
             audio_path: None,
             saved_recordings: None,
-            player: None,
-            playback_position: 0.,
-            playback_task: None,
-            playback_error: None,
         }
     }
 
     #[cfg(target_os = "macos")]
     pub(crate) fn record_speech(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.recording.is_some() || self.loading_audio || self.choosing_file {
+        if self.recording.is_some() || self.opening.loading || self.opening.choosing {
             return;
         }
         self.settings_open = false;
@@ -170,7 +194,7 @@ impl Recorder {
     }
 
     fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.loading_audio || self.choosing_file {
+        if self.opening.loading || self.opening.choosing {
             return;
         }
         if let Some(recording) = self.recording.take() {
@@ -198,11 +222,11 @@ impl Recorder {
 
     fn reset_audio(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.processing_cancel.store(true, Relaxed);
-        self.opening_task = None;
-        self.recognition_task = None;
+        self.opening.task = None;
+        self.recognition.task = None;
         self.speaker_task = None;
-        self.loading_audio = false;
-        self.recognition_job = None;
+        self.opening.loading = false;
+        self.recognition.job = None;
         self.clear_audio(window, cx);
         self.saved_recordings = None;
         self.settings_open = false;
@@ -211,19 +235,19 @@ impl Recorder {
     }
 
     fn clear_audio(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.playback_task = None;
+        self.playback.task = None;
         self.speaker_result = None;
         self.speaker_model = self.default_speaker_model;
-        self.player = None;
-        self.playback_position = 0.;
+        self.playback.player = None;
+        self.playback.position = 0.;
         self.audio_model = None;
         self.audio = None;
         self.audio_path = None;
-        self.playback_error = None;
+        self.playback.error = None;
         self.transcripts.clear();
         self.audio_scroll = ScrollHandle::new();
         self.transcript_view.visible = false;
-        self.recognition_requested = false;
+        self.recognition.requested = false;
         self.audio_settings_expanded = false;
         self.selected_transcript = None;
         self.transcript.update(cx, |input, cx| {
@@ -232,10 +256,10 @@ impl Recorder {
     }
 
     fn choose_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.loading_audio || self.choosing_file || self.recording.is_some() {
+        if self.opening.loading || self.opening.choosing || self.recording.is_some() {
             return;
         }
-        self.choosing_file = true;
+        self.opening.choosing = true;
         let selection = rfd::AsyncFileDialog::new()
             .set_title(t!("choose_audio").into_owned())
             .add_filter(
@@ -246,7 +270,7 @@ impl Recorder {
         cx.spawn_in(window, async move |this, cx| {
             let selection = selection.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.choosing_file = false;
+                this.opening.choosing = false;
                 if let Some(file) = selection {
                     this.load_audio(file.path().to_path_buf(), window, cx);
                 }
@@ -258,7 +282,7 @@ impl Recorder {
     }
 
     fn audio_busy(&self) -> bool {
-        self.loading_audio || self.recognition_job.is_some()
+        self.opening.loading || self.recognition.job.is_some()
     }
 
     fn load_audio(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
@@ -272,7 +296,7 @@ impl Recorder {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.loading_audio || self.choosing_file || self.recording.is_some() {
+        if self.opening.loading || self.opening.choosing || self.recording.is_some() {
             return;
         }
         if !crate::audio::is_supported(&path) {
@@ -281,7 +305,7 @@ impl Recorder {
             return;
         }
         self.clear_audio(window, cx);
-        self.loading_audio = true;
+        self.opening.loading = true;
         self.status = Message::Detail(
             "opening_audio",
             path.file_name()
@@ -291,7 +315,7 @@ impl Recorder {
         );
         self.audio_path = Some(path.clone());
         let audio_path = path.clone();
-        let (progress, refresh) = Self::track_progress(&self.opening_progress, cx);
+        let (progress, refresh) = Self::track_progress(&self.opening.progress, cx);
         self.processing_cancel = Arc::default();
         let cancel = self.processing_cancel.clone();
         let task = cx.background_spawn(async move {
@@ -301,12 +325,12 @@ impl Recorder {
                 Ok(())
             })
         });
-        self.opening_task = Some(cx.spawn_in(window, async move |this, cx| {
+        self.opening.task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = task.await.context(t!("open_audio_failed").into_owned());
             drop(refresh);
             let _ = this.update_in(cx, |this, window, cx| {
-                this.opening_task = None;
-                this.loading_audio = false;
+                this.opening.task = None;
+                this.opening.loading = false;
                 match result {
                     Ok(audio) => {
                         this.audio = Some(Arc::new(audio));
@@ -363,7 +387,8 @@ impl Recorder {
     }
 
     fn recognition_model_for(&self, path: &std::path::Path) -> Option<SpeechModel> {
-        self.recognition_job
+        self.recognition
+            .job
             .as_ref()
             .filter(|(source, _)| source == path)
             .map(|(_, model)| *model)
@@ -400,7 +425,7 @@ impl Recorder {
 
     fn recognize(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.audio_busy()
-            || self.choosing_file
+            || self.opening.choosing
             || self.recording.is_some()
             || self.speaker_task.is_some()
             || self.speaker_download.is_some()
@@ -421,17 +446,17 @@ impl Recorder {
         };
         self.processing_cancel = Arc::default();
         let cancel = self.processing_cancel.clone();
-        self.recognition_requested = true;
+        self.recognition.requested = true;
         let segments = self.split_speakers(window, cx);
-        self.recognition_job = Some((path.clone(), model));
+        self.recognition.job = Some((path.clone(), model));
         let source = path.clone();
         self.status = Message::Empty;
-        self.recognition_started = None;
-        let (progress, refresh) = Self::track_progress(&self.recognition_progress, cx);
-        self.recognition_task = Some(cx.spawn_in(window, async move |this, cx| {
+        self.recognition.started = None;
+        let (progress, refresh) = Self::track_progress(&self.recognition.progress, cx);
+        self.recognition.task = Some(cx.spawn_in(window, async move |this, cx| {
             let segments = segments.await.unwrap_or_default();
             let _ = this.update_in(cx, |this, _, cx| {
-                this.recognition_started = Some(Instant::now());
+                this.recognition.started = Some(Instant::now());
                 cx.notify();
             });
             let result = cx
@@ -446,8 +471,8 @@ impl Recorder {
                 .await;
             drop(refresh);
             let _ = this.update_in(cx, |this, window, cx| {
-                this.recognition_task = None;
-                this.recognition_job = None;
+                this.recognition.task = None;
+                this.recognition.job = None;
                 let source_is_open = this.audio_path.as_ref() == Some(&source);
                 match result {
                     Ok(turns) => {

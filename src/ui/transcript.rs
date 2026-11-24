@@ -15,10 +15,15 @@ impl Recorder {
     ) -> impl IntoElement {
         let theme = cx.theme();
         let position = self
+            .playback
             .player
             .as_ref()
-            .map_or(self.playback_position, crate::audio::Player::position);
-        let playing = self.player.as_ref().is_some_and(|player| player.playing);
+            .map_or(self.playback.position, crate::audio::Player::position);
+        let playing = self
+            .playback
+            .player
+            .as_ref()
+            .is_some_and(|player| player.playing);
         let font_size = f32::from(self.transcript_view.font_size);
         let scale = font_size / 16.;
         let label_size = font_size * 0.8;

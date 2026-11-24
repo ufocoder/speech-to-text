@@ -165,6 +165,7 @@ pub(super) fn install(
     model: SpeechModel,
     cache: &Path,
     report: impl Fn(u64, u64),
+    validate: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<PathBuf> {
     let manifest = read(model, cache, false).context("No model update metadata")?;
     let directory = directory(model, cache, &manifest);
@@ -188,7 +189,7 @@ pub(super) fn install(
         })?;
         completed += asset.size;
     }
-    crate::recognition::validate_model(model, &directory)?;
+    validate(&directory)?;
     save(model, cache, true, &manifest)?;
     Ok(directory)
 }

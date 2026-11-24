@@ -71,8 +71,8 @@ impl Recorder {
                             .when(!home_active, |button| button.ghost())
                             .disabled(
                                 self.recording.is_some()
-                                    || self.loading_audio
-                                    || self.choosing_file,
+                                    || self.opening.loading
+                                    || self.opening.choosing,
                             )
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let from_archive = this.saved_recordings.take().is_some();
@@ -112,7 +112,7 @@ impl Recorder {
             } else {
                 t!("make_recording").into_owned()
             })
-            .disabled(self.loading_audio || self.choosing_file)
+            .disabled(self.opening.loading || self.opening.choosing)
             .on_click(cx.listener(|this, _, window, cx| this.toggle(window, cx)));
         let actions = if recording {
             div()
@@ -143,7 +143,7 @@ impl Recorder {
                         .icon(IconName::FolderOpen)
                         .custom(button_style)
                         .label(t!("open_audio").into_owned())
-                        .disabled(self.loading_audio || self.choosing_file)
+                        .disabled(self.opening.loading || self.opening.choosing)
                         .on_click(cx.listener(|this, _, window, cx| this.choose_file(window, cx))),
                 )
         };
@@ -173,15 +173,17 @@ impl Recorder {
                             .items_center()
                             .gap_2()
                             .text_sm()
-                            .when(self.loading_audio, |row| row.child(Spinner::new().small()))
+                            .when(self.opening.loading, |row| {
+                                row.child(Spinner::new().small())
+                            })
                             .child(self.status.render())
-                            .when(self.loading_audio, |row| {
-                                row.child(super::progress_label(&self.opening_progress))
+                            .when(self.opening.loading, |row| {
+                                row.child(super::progress_label(&self.opening.progress))
                             }),
                     )
                 },
             )
-            .when(self.recognition_job.is_some(), |view| {
+            .when(self.recognition.job.is_some(), |view| {
                 view.child(
                     div()
                         .flex()
@@ -200,7 +202,7 @@ impl Recorder {
             .unwrap_or(path.as_os_str())
             .to_string_lossy();
         let delete_path = path.to_path_buf();
-        let busy = self.recognition_job.is_some()
+        let busy = self.recognition.job.is_some()
             || self.speaker_task.is_some()
             || self.speaker_download.is_some();
         let processing = self.recognition_model_for(path);
@@ -253,14 +255,14 @@ impl Recorder {
                                     .icon(IconName::Trash)
                                     .accessibility_label(t!("delete").into_owned())
                                     .tooltip(t!("delete").into_owned())
-                                    .disabled(self.loading_audio || processing.is_some())
+                                    .disabled(self.opening.loading || processing.is_some())
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.confirm_delete(delete_path.clone(), window, cx);
                                     })),
                             ),
                     ),
             )
-            .when(self.loading_audio, |view| {
+            .when(self.opening.loading, |view| {
                 view.child(
                     div()
                         .rounded(radius)
@@ -273,7 +275,7 @@ impl Recorder {
                         .gap_2()
                         .child(Spinner::new().small())
                         .child(t!("preparing_audio").into_owned())
-                        .child(super::progress_label(&self.opening_progress)),
+                        .child(super::progress_label(&self.opening.progress)),
                 )
             })
             .children(self.playback_panel(cx).map(|player| {
@@ -285,7 +287,7 @@ impl Recorder {
                     .p_4()
                     .child(player)
             }))
-            .when(!self.loading_audio, |view| {
+            .when(!self.opening.loading, |view| {
                 view.child(
                     div()
                         .flex()
@@ -350,8 +352,8 @@ impl Recorder {
                                 let remaining = [
                                     (
                                         processing.is_some(),
-                                        self.recognition_started,
-                                        &self.recognition_progress,
+                                        self.recognition.started,
+                                        &self.recognition.progress,
                                     ),
                                     (splitting, self.speaker_started, &self.speaker_progress),
                                 ]
@@ -379,7 +381,7 @@ impl Recorder {
                             },
                         )
                         .when(
-                            !self.recognition_requested && !self.transcripts.is_empty(),
+                            !self.recognition.requested && !self.transcripts.is_empty(),
                             |row| {
                                 row.child(
                                     div().ml_auto().child(
@@ -405,7 +407,7 @@ impl Recorder {
                 )
             })
             .when(
-                !self.loading_audio && !model_ready && processing.is_none(),
+                !self.opening.loading && !model_ready && processing.is_none(),
                 |view| {
                     view.child(
                         div()
@@ -416,15 +418,18 @@ impl Recorder {
                 },
             )
             .when(
-                !self.loading_audio && !matches!(self.status, Message::Empty),
+                !self.opening.loading && !matches!(self.status, Message::Empty),
                 |view| view.child(div().text_sm().child(self.status.render())),
             )
             .children(
-                self.playback_error
+                self.playback
+                    .error
                     .iter()
                     .map(|error| div().text_sm().child(error.render())),
             )
-            .when(!self.loading_audio, |view| view.child(self.speaker_panel()))
+            .when(!self.opening.loading, |view| {
+                view.child(self.speaker_panel())
+            })
             .when(
                 self.transcript_view.visible && !self.transcripts.is_empty(),
                 |view| view.child(self.transcript_panel(cx)),

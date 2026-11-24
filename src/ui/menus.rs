@@ -104,7 +104,7 @@ impl Recorder {
         let selected = self.language;
         Button::new("language")
             .label(self.language.label())
-            .disabled(self.audio_busy() || self.choosing_file || self.recording.is_some())
+            .disabled(self.audio_busy() || self.opening.choosing || self.recording.is_some())
             .dropdown_menu(move |menu, _, _| {
                 [Language::Russian, Language::English]
                     .into_iter()

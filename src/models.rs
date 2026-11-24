@@ -222,9 +222,14 @@ impl SpeechModel {
             && source.previous_installations(cache).next().is_some()
     }
 
-    pub fn prepare(self, cache: &Path, report: impl Fn(u64, u64)) -> Result<PathBuf> {
+    pub fn prepare(
+        self,
+        cache: &Path,
+        report: impl Fn(u64, u64),
+        validate: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<PathBuf> {
         if updates::available(self, cache) {
-            return updates::install(self, cache, report);
+            return updates::install(self, cache, report, validate);
         }
         let source = self.source();
         let directory = source.cache_directory(cache);

@@ -28,12 +28,12 @@ impl Recorder {
             .when(!self.settings_open, |button| button.ghost())
             .icon(IconName::Settings)
             .label(t!("settings").into_owned())
-            .disabled(self.audio_busy() || self.choosing_file || self.recording.is_some())
+            .disabled(self.audio_busy() || self.opening.choosing || self.recording.is_some())
             .on_click(cx.listener(|this, _, _, cx| this.open_settings(cx)))
     }
 
     pub(crate) fn open_settings(&mut self, cx: &mut Context<Self>) {
-        if self.audio_busy() || self.choosing_file || self.recording.is_some() {
+        if self.audio_busy() || self.opening.choosing || self.recording.is_some() {
             return;
         }
         self.saved_recordings = None;
@@ -95,7 +95,7 @@ impl Recorder {
                                     .child(
                                         Button::new("choose-recordings-directory")
                                             .label(t!("change_folder").into_owned())
-                                            .disabled(self.choosing_file)
+                                            .disabled(self.opening.choosing)
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.choose_recordings_dir(window, cx)
                                             })),
@@ -189,7 +189,7 @@ impl Recorder {
 
     fn model_row(&self, model: SpeechModel, cached: bool, cx: &Context<Self>) -> Div {
         let active = self.model == model;
-        let downloading = self.downloading_model == Some(model);
+        let downloading = self.model_download.model == Some(model);
         let update_available = cached && self.available_model_updates.contains(&model);
         let blocked = self.model_actions_blocked();
         let view = cx.entity().downgrade();
@@ -233,10 +233,10 @@ impl Recorder {
                     div()
                         .flex_1()
                         .text_sm()
-                        .child(format!("{}%", self.download_percent))
+                        .child(format!("{}%", self.model_download.percent))
                         .child(super::remaining_time(
-                            self.model_download_started,
-                            self.download_percent,
+                            self.model_download.started,
+                            self.model_download.percent,
                         ))
                         .child(
                             div()
@@ -248,7 +248,7 @@ impl Recorder {
                                 .child(
                                     div()
                                         .h_full()
-                                        .w(relative(f32::from(self.download_percent) / 100.))
+                                        .w(relative(f32::from(self.model_download.percent) / 100.))
                                         .bg(cx.theme().primary),
                                 ),
                         ),
@@ -365,35 +365,39 @@ impl Recorder {
     }
 
     fn model_actions_blocked(&self) -> bool {
-        self.downloading_model.is_some() || self.audio_busy() || self.recording.is_some()
+        self.model_download.model.is_some() || self.audio_busy() || self.recording.is_some()
     }
 
     fn download_model(&mut self, model: SpeechModel, cx: &mut Context<Self>) {
         if self.model_actions_blocked() {
             return;
         }
-        self.downloading_model = Some(model);
-        self.download_percent = 0;
-        self.model_download_started = Some(super::Instant::now());
+        self.model_download.model = Some(model);
+        self.model_download.percent = 0;
+        self.model_download.started = Some(super::Instant::now());
         self.settings_error = None;
         let progress = Arc::new(AtomicU8::new(0));
         let worker_progress = progress.clone();
         let task = cx.background_spawn(async move {
-            model.prepare(&model_cache(), |bytes, total| {
-                worker_progress.store((bytes * 100 / total).min(99) as u8, Relaxed);
-            })
+            model.prepare(
+                &model_cache(),
+                |bytes, total| {
+                    worker_progress.store((bytes * 100 / total).min(99) as u8, Relaxed);
+                },
+                |directory| crate::recognition::validate_model(model, directory),
+            )
         });
         let executor = cx.background_executor().clone();
-        self.download_progress_task = Some(cx.spawn(async move |this, cx| {
+        self.model_download.progress_task = Some(cx.spawn(async move |this, cx| {
             loop {
                 executor.timer(Duration::from_millis(120)).await;
                 let active = this.update(cx, |this, cx| {
-                    if this.downloading_model.is_none() {
+                    if this.model_download.model.is_none() {
                         return false;
                     }
                     let percent = progress.load(Relaxed);
-                    if this.download_percent != percent {
-                        this.download_percent = percent;
+                    if this.model_download.percent != percent {
+                        this.model_download.percent = percent;
                         cx.notify();
                     }
                     true
@@ -406,8 +410,8 @@ impl Recorder {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.downloading_model = None;
-                this.download_progress_task = None;
+                this.model_download.model = None;
+                this.model_download.progress_task = None;
                 match result {
                     Ok(_) => this
                         .available_model_updates
@@ -422,10 +426,10 @@ impl Recorder {
     }
 
     fn choose_recordings_dir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.choosing_file {
+        if self.opening.choosing {
             return;
         }
-        self.choosing_file = true;
+        self.opening.choosing = true;
         self.settings_error = None;
         let selection = cx.prompt_for_paths(PathPromptOptions {
             files: false,
@@ -436,7 +440,7 @@ impl Recorder {
         cx.spawn_in(window, async move |this, cx| {
             let result = selection.await;
             let _ = this.update_in(cx, |this, _, cx| {
-                this.choosing_file = false;
+                this.opening.choosing = false;
                 let error = match result {
                     Ok(Ok(Some(paths))) => paths
                         .first()
