@@ -219,27 +219,19 @@ impl Recorder {
             return;
         }
         self.choosing_file = true;
-        let selection = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(t!("choose_audio").into_owned().into()),
-        });
+        let selection = rfd::AsyncFileDialog::new()
+            .set_title(t!("choose_audio").into_owned())
+            .add_filter(
+                "WAV, MP3, FLAC, Ogg Vorbis, M4A",
+                crate::audio::SUPPORTED_EXTENSIONS,
+            )
+            .pick_file();
         cx.spawn_in(window, async move |this, cx| {
             let selection = selection.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.choosing_file = false;
-                match selection {
-                    Ok(Ok(Some(paths))) => {
-                        if let Some(path) = paths.into_iter().next() {
-                            this.load_audio(path, window, cx);
-                        }
-                    }
-                    Ok(Ok(None)) => {}
-                    Ok(Err(error)) => {
-                        this.status = Message::Detail("file_picker_error", format!("{error:#}"))
-                    }
-                    Err(_) => this.status = Message::Text("file_picker_unavailable"),
+                if let Some(file) = selection {
+                    this.load_audio(file.path().to_path_buf(), window, cx);
                 }
                 cx.notify();
             });
@@ -264,6 +256,11 @@ impl Recorder {
         cx: &mut Context<Self>,
     ) {
         if self.loading_audio || self.choosing_file || self.recording.is_some() {
+            return;
+        }
+        if !crate::audio::is_supported(&path) {
+            self.status = Message::Text("unsupported_audio_file");
+            cx.notify();
             return;
         }
         self.clear_audio(window, cx);

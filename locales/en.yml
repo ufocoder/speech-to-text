@@ -162,3 +162,8 @@ view_releases: "View release"
 past_results: "Past results"
 
 update_model: "Update"
+
+supported_audio_formats: "Supported formats: WAV, MP3, FLAC, Ogg Vorbis, M4A (AAC/ALAC)"
+unsupported_audio_file: "Unsupported audio file. Choose WAV, MP3, FLAC, Ogg Vorbis, or M4A (AAC/ALAC)."
+
+model_update_available: "Update available"

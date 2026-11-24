@@ -54,6 +54,23 @@ impl Recorder {
                 })
             })
             .collect();
+        for model in SpeechModel::ALL {
+            let request =
+                cx.background_spawn(
+                    async move { model.check_updates(&crate::storage::model_cache()) },
+                );
+            self.model_update_tasks
+                .push(cx.spawn(async move |this, cx| {
+                    let result = request.await;
+                    let _ = this.update(cx, |this, cx| {
+                        if let Err(error) = result {
+                            this.settings_error =
+                                Some(crate::i18n::Message::Error(format!("{error:#}")));
+                        }
+                        cx.notify();
+                    });
+                }));
+        }
     }
 
     pub(super) fn open_model_catalog(&mut self, speakers: bool, cx: &mut Context<Self>) {

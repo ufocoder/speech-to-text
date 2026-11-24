@@ -85,7 +85,21 @@ impl Recorder {
             .map_or(self.playback_position, Player::position);
         let progress = (position / duration).clamp(0., 1.);
         let theme = cx.theme();
-        let (played, pending, background) = (theme.primary, theme.muted_foreground, theme.muted);
+        let (played, pending, background, playhead): (Hsla, Hsla, Hsla, Hsla) = if theme.is_dark() {
+            (
+                rgb(0xe9b85e).into(),
+                rgb(0x646464).into(),
+                rgb(0x303030).into(),
+                rgb(0xffe2ab).into(),
+            )
+        } else {
+            (
+                rgb(0xa66b16).into(),
+                rgb(0xbfc2c5).into(),
+                rgb(0xf5f6f7).into(),
+                rgb(0x38342e).into(),
+            )
+        };
         // Normalize only the display, with a floor to avoid magnifying near-silence.
         let peak_scale = audio.peaks.iter().copied().fold(0.02_f32, f32::max);
         let bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
@@ -152,7 +166,7 @@ impl Recorder {
                         let x = area.origin.x + (area.size.width - px(1.)) * progress as f32;
                         window.paint_quad(fill(
                             Bounds::new(point(x, area.origin.y), size(px(1.), area.size.height)),
-                            played,
+                            playhead,
                         ));
                     },
                 )

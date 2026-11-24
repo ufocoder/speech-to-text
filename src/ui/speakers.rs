@@ -62,6 +62,7 @@ impl Recorder {
                 };
                 let actions = div().child(
                     Button::new(("speaker-actions", index))
+                        .outline()
                         .label("⋯")
                         .accessibility_label(t!("model_actions").into_owned())
                         .disabled(busy || (installed && model.is_none()))
@@ -108,6 +109,7 @@ impl Recorder {
                         }),
                 );
                 model_columns(
+                    super::theme::row_border(cx.theme()),
                     name,
                     "—".to_owned(),
                     size.to_owned(),
@@ -115,21 +117,33 @@ impl Recorder {
                     updated,
                     actions,
                 )
-                .border_t_1()
-                .border_color(cx.theme().border)
-                .when(selected, |row| row.bg(cx.theme().muted))
+                .when(selected, |row| {
+                    row.bg(super::theme::selected_background(cx.theme()))
+                })
             })
             .collect::<Vec<_>>();
         GroupBox::new()
             .id("speaker-model-settings")
             .with_variant(GroupBoxVariant::Outline)
+            .content_style(
+                StyleRefinement::default()
+                    .bg(super::theme::card_background(cx.theme()))
+                    .p_0()
+                    .overflow_hidden(),
+            )
             .title(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
                     .gap_2()
-                    .child(t!("speaker_catalog").into_owned())
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_semibold()
+                            .text_color(cx.theme().foreground)
+                            .child(t!("speaker_catalog").into_owned()),
+                    )
                     .child(
                         Button::new("search-speaker-models")
                             .icon(gpui_kit::assets::IconName::Search)
@@ -150,6 +164,7 @@ impl Recorder {
                             .min_w(px(580.))
                             .child(
                                 model_columns(
+                                    cx.theme().border,
                                     div().child(t!("model_column").into_owned()),
                                     t!("model_parameters").into_owned(),
                                     t!("model_size").into_owned(),
@@ -157,7 +172,12 @@ impl Recorder {
                                     t!("model_updated").into_owned(),
                                     div(),
                                 )
-                                .font_semibold(),
+                                .font_semibold()
+                                .text_color(cx.theme().foreground)
+                                .bg(cx.theme().muted)
+                                .border_b_1()
+                                .border_color(cx.theme().border)
+                                .py_3(),
                             )
                             .when(rows.is_empty(), |table| {
                                 table.child(t!("speaker_no_matches").into_owned())

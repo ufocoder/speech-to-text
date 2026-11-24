@@ -156,6 +156,14 @@ impl Recorder {
             .gap_4()
             .p_6()
             .child(actions)
+            .when(!recording, |view| {
+                view.child(
+                    div()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child(t!("supported_audio_formats").into_owned()),
+                )
+            })
             .when(
                 !recording && !matches!(self.status, Message::Empty),
                 |view| {
@@ -286,7 +294,7 @@ impl Recorder {
                         .flex()
                         .flex_wrap()
                         .items_center()
-                        .gap_3()
+                        .gap_4()
                         .child(
                             Button::new("transcribe-audio")
                                 .primary()
@@ -323,7 +331,7 @@ impl Recorder {
                                                 .flex()
                                                 .flex_wrap()
                                                 .items_center()
-                                                .gap_3()
+                                                .gap_4()
                                                 .when_some(selected_model, |row, model| {
                                                     row.child(self.audio_model_menu(model, cx))
                                                 })
@@ -372,32 +380,32 @@ impl Recorder {
                                         .child(format!("{status} · {remaining}")),
                                 )
                             },
+                        )
+                        .when(
+                            !self.recognition_requested && !self.transcripts.is_empty(),
+                            |row| {
+                                row.child(
+                                    div().ml_auto().child(
+                                        Button::new("past-results")
+                                            .outline()
+                                            .label(if self.results_visible {
+                                                format!("{} ↑", t!("past_results"))
+                                            } else {
+                                                format!("{} ↓", t!("past_results"))
+                                            })
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.results_visible = !this.results_visible;
+                                                if this.results_visible {
+                                                    this.audio_scroll.scroll_to_bottom();
+                                                }
+                                                cx.notify();
+                                            })),
+                                    ),
+                                )
+                            },
                         ),
                 )
             })
-            .when(
-                !self.loading_audio && !self.recognition_requested && !self.transcripts.is_empty(),
-                |view| {
-                    view.child(
-                        div().flex().child(
-                            Button::new("past-results")
-                                .outline()
-                                .label(if self.results_visible {
-                                    format!("← {}", t!("past_results"))
-                                } else {
-                                    format!("{} →", t!("past_results"))
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.results_visible = !this.results_visible;
-                                    if this.results_visible {
-                                        this.audio_scroll.scroll_to_bottom();
-                                    }
-                                    cx.notify();
-                                })),
-                        ),
-                    )
-                },
-            )
             .when(
                 !self.loading_audio && !model_ready && processing.is_none(),
                 |view| {
@@ -425,7 +433,8 @@ impl Recorder {
                     view.child(
                         div()
                             .flex_1()
-                            .min_h(px(180.))
+                            .min_h(px(280.))
+                            .overflow_hidden()
                             .flex()
                             .flex_col()
                             .gap_2()
@@ -436,10 +445,11 @@ impl Recorder {
                             .p_4()
                             .child(
                                 div()
+                                    .flex_shrink_0()
                                     .flex()
                                     .items_center()
                                     .flex_wrap()
-                                    .gap_2()
+                                    .gap_4()
                                     .child(
                                         div()
                                             .mr_auto()
@@ -457,7 +467,7 @@ impl Recorder {
                                                     .flex()
                                                     .flex_wrap()
                                                     .items_center()
-                                                    .gap_3()
+                                                    .gap_4()
                                                     .child(
                                                         Button::new("include-speakers")
                                                             .when(self.include_speakers, |button| {
@@ -583,6 +593,7 @@ impl Recorder {
                             )
                             .child(
                                 TabBar::new("transcript-tabs")
+                                    .flex_shrink_0()
                                     .underline()
                                     .selected_index(
                                         self.transcripts
@@ -614,13 +625,14 @@ impl Recorder {
                             })
                             .when(has_text, |view| {
                                 view.child(
-                                    Textarea::new(&self.transcript)
-                                        .flex_1()
-                                        .min_h(px(96.))
-                                        .text_size(px(f32::from(self.transcript_font_size)))
-                                        .bordered(false)
-                                        .appearance(false)
-                                        .readonly(true),
+                                    div().flex_1().min_h_0().overflow_hidden().child(
+                                        Textarea::new(&self.transcript)
+                                            .size_full()
+                                            .text_size(px(f32::from(self.transcript_font_size)))
+                                            .bordered(false)
+                                            .appearance(false)
+                                            .readonly(true),
+                                    ),
                                 )
                             }),
                     )

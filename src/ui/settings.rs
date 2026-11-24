@@ -5,7 +5,6 @@ use crate::{
     storage::{model_cache, recordings_dir, save_recordings_dir},
 };
 use gpui_kit::assets::IconName;
-use gpui_kit::component::Sizable;
 use gpui_kit::component::{
     ActiveTheme, Disableable, StyledExt,
     button::{Button, ButtonVariants},
@@ -107,13 +106,6 @@ impl Recorder {
                                 self.language_menu(view),
                             )),
                     )
-                    .child(
-                        div().flex().child(
-                            Button::new("check-updates")
-                                .label(t!("check_updates").into_owned())
-                                .on_click(|_, _, cx| cx.defer(crate::updates::open)),
-                        ),
-                    )
                     .child(self.model_settings(cx))
                     .child(self.speaker_model_settings(cx)),
             )
@@ -122,6 +114,7 @@ impl Recorder {
     fn model_settings(&self, cx: &Context<Self>) -> impl IntoElement {
         let cache = model_cache();
         let header = model_columns(
+            cx.theme().border,
             div().child(t!("model_column").into_owned()),
             t!("model_parameters").into_owned(),
             t!("model_size").into_owned(),
@@ -129,18 +122,34 @@ impl Recorder {
             t!("model_updated").into_owned(),
             div(),
         )
-        .font_semibold();
+        .font_semibold()
+        .text_color(cx.theme().foreground)
+        .bg(cx.theme().muted)
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .py_3();
         GroupBox::new()
             .id("model-settings")
             .with_variant(GroupBoxVariant::Outline)
-            .content_style(StyleRefinement::default().bg(super::theme::card_background(cx.theme())))
+            .content_style(
+                StyleRefinement::default()
+                    .bg(super::theme::card_background(cx.theme()))
+                    .p_0()
+                    .overflow_hidden(),
+            )
             .title(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
                     .gap_2()
-                    .child(t!("recognition_model_label").into_owned())
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_semibold()
+                            .text_color(cx.theme().foreground)
+                            .child(t!("recognition_model_label").into_owned()),
+                    )
                     .child(
                         Button::new("search-models")
                             .icon(IconName::Search)
@@ -186,14 +195,29 @@ impl Recorder {
         let view = cx.entity().downgrade();
         let muted = cx.theme().muted_foreground;
         let name = div()
-            .font_semibold()
-            .child(model.label())
-            .when(active, |cell| {
+            .child(div().font_semibold().child(model.label()))
+            .when(active || update_available, |cell| {
                 cell.child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child(t!("active_model").into_owned()),
+                    div().flex().mt_1().child(
+                        div()
+                            .text_xs()
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .bg(cx.theme().primary)
+                            .text_color(cx.theme().primary_foreground)
+                            .child(match (active, update_available) {
+                                (true, true) => {
+                                    format!(
+                                        "{} · {}",
+                                        t!("active_model"),
+                                        t!("model_update_available")
+                                    )
+                                }
+                                (true, false) => t!("active_model").into_owned(),
+                                _ => t!("model_update_available").into_owned(),
+                            }),
+                    ),
                 )
             })
             .when(!cached && !downloading, |cell| {
@@ -202,17 +226,6 @@ impl Recorder {
                         .text_sm()
                         .text_color(muted)
                         .child(t!("model_not_downloaded").into_owned()),
-                )
-            })
-            .when(update_available && !downloading, |cell| {
-                cell.child(
-                    Button::new(SharedString::from(format!("update-model-{}", model.id())))
-                        .xsmall()
-                        .label(t!("update_model").into_owned())
-                        .disabled(blocked)
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.download_model(model, cx)),
-                        ),
                 )
             })
             .when(downloading, |cell| {
@@ -243,7 +256,7 @@ impl Recorder {
             });
         let actions = div().child(
             Button::new(SharedString::from(format!("model-actions-{}", model.id())))
-                .ghost()
+                .outline()
                 .label("⋯")
                 .accessibility_label(t!("model_actions").into_owned())
                 .disabled(blocked)
@@ -251,6 +264,7 @@ impl Recorder {
                     let activate_view = view.clone();
                     let delete_view = view.clone();
                     let download_view = view.clone();
+                    let update_view = view.clone();
                     menu.item(
                         PopupMenuItem::new(t!("activate_model").into_owned())
                             .disabled(active)
@@ -263,6 +277,16 @@ impl Recorder {
                                 });
                             }),
                     )
+                    .when(update_available, |menu| {
+                        menu.item(
+                            PopupMenuItem::new(t!("update_model").into_owned()).on_click(
+                                move |_, _, cx| {
+                                    let _ = update_view
+                                        .update(cx, |this, cx| this.download_model(model, cx));
+                                },
+                            ),
+                        )
+                    })
                     .when(cached, |menu| {
                         menu.item(PopupMenuItem::new(t!("delete").into_owned()).on_click(
                             move |_, _, cx| {
@@ -313,10 +337,11 @@ impl Recorder {
             |date| date.format(&t!("model_update_date_format")).to_string(),
         );
         div()
-            .border_t_1()
-            .border_color(cx.theme().border)
-            .when(active, |row| row.bg(cx.theme().muted))
+            .when(active, |row| {
+                row.bg(super::theme::selected_background(cx.theme()))
+            })
             .child(model_columns(
+                super::theme::row_border(cx.theme()),
                 name,
                 t!("model_parameter_count", count = model.parameters_millions()).into_owned(),
                 model.download_size_mb().to_string(),
@@ -448,6 +473,7 @@ fn setting_row(title: String, field: impl IntoElement) -> Div {
 }
 
 pub(super) fn model_columns(
+    border: Hsla,
     name: Div,
     parameters: String,
     size: String,
@@ -457,9 +483,8 @@ pub(super) fn model_columns(
 ) -> Div {
     div()
         .flex()
-        .items_center()
-        .gap_2()
-        .px_2()
+        .items_stretch()
+        .px_4()
         .py_2()
         .text_sm()
         .child(name.flex_1().min_w_0())
@@ -467,7 +492,13 @@ pub(super) fn model_columns(
             div()
                 .w(px(92.))
                 .flex_shrink_0()
-                .text_right()
+                .border_l_1()
+                .border_color(border)
+                .px_2()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .text_center()
                 .whitespace_nowrap()
                 .child(parameters),
         )
@@ -475,18 +506,51 @@ pub(super) fn model_columns(
             div()
                 .w(px(88.))
                 .flex_shrink_0()
-                .text_right()
+                .border_l_1()
+                .border_color(border)
+                .px_2()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .text_center()
                 .whitespace_nowrap()
                 .child(size),
         )
-        .child(languages.w(px(104.)).flex_shrink_0())
+        .child(
+            languages
+                .w(px(104.))
+                .flex_shrink_0()
+                .border_l_1()
+                .border_color(border)
+                .px_2()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .text_center(),
+        )
         .child(
             div()
                 .w(px(110.))
                 .flex_shrink_0()
-                .text_right()
+                .border_l_1()
+                .border_color(border)
+                .px_2()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .text_center()
                 .whitespace_nowrap()
                 .child(updated),
         )
-        .child(actions.w(px(36.)).flex_shrink_0().flex().justify_end())
+        .child(
+            actions
+                .w(px(60.))
+                .flex_shrink_0()
+                .border_l_1()
+                .border_color(border)
+                .px_2()
+                .flex()
+                .items_center()
+                .justify_center(),
+        )
 }

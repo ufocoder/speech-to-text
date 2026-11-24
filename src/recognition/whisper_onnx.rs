@@ -1,20 +1,9 @@
 use std::path::Path;
 
-use anyhow::Result;
+use crate::models::WhisperOnnxFiles;
 use sherpa_onnx::OfflineRecognizerConfig;
 
-use crate::{audio::Audio, models::WhisperOnnxFiles};
-
-use super::decode_sherpa;
-
-pub(super) fn transcribe(
-    audio: &Audio,
-    model_label: &str,
-    directory: &Path,
-    files: WhisperOnnxFiles,
-    range: (f64, f64),
-    report: &impl Fn(u8) -> Result<()>,
-) -> Result<String> {
+pub(super) fn config(directory: &Path, files: WhisperOnnxFiles) -> OfflineRecognizerConfig {
     let path = |name: &str| Some(directory.join(name).to_string_lossy().into_owned());
     let mut config = OfflineRecognizerConfig::default();
     config.model_config.num_threads = 2;
@@ -24,6 +13,5 @@ pub(super) fn transcribe(
     config.model_config.whisper.decoder = path(files.decoder);
     config.model_config.whisper.task = Some("transcribe".into());
 
-    // Leave room for padding in Whisper's 30-second input window.
-    decode_sherpa(audio, model_label, config, 25, range, report)
+    config
 }

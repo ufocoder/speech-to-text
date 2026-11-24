@@ -63,15 +63,7 @@ pub fn saved_recordings() -> std::io::Result<Vec<SavedRecording>> {
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        let extension = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or_default();
-        if ["wav", "mp3", "flac", "ogg", "vorbis"]
-            .iter()
-            .any(|ext| extension.eq_ignore_ascii_case(ext))
-            && entry.file_type()?.is_file()
-        {
+        if crate::audio::is_supported(&path) && entry.file_type()?.is_file() {
             let recorded_at = entry
                 .metadata()
                 .and_then(|metadata| metadata.created().or_else(|_| metadata.modified()))

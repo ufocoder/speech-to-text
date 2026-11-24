@@ -9,32 +9,52 @@ use std::path::Path;
 
 use crate::{audio::Audio, models::SpeechModel};
 
-pub fn transcribe(
-    audio: &Audio,
-    model: SpeechModel,
-    directory: &Path,
-    range: (f64, f64),
-    report: &impl Fn(u8) -> Result<()>,
-) -> Result<String> {
-    if let Some(files) = model.whisper_onnx_files() {
-        return whisper_onnx::transcribe(audio, model.label(), directory, files, range, report);
-    }
-    match model {
-        SpeechModel::Tone => transcribe_tone(audio, &directory.join("model.onnx"), range, report),
-        SpeechModel::GigaAm | SpeechModel::Parakeet => {
-            transcribe_sherpa(audio, model, directory, range, report)
+pub(crate) fn validate_model(model: SpeechModel, directory: &Path) -> Result<()> {
+    Recognizer::load(model, directory).map(|_| ())
+}
+
+enum Recognizer {
+    Sherpa(OfflineRecognizer, usize),
+    Tone(Session),
+}
+
+impl Recognizer {
+    fn load(model: SpeechModel, directory: &Path) -> Result<Self> {
+        if let Some(files) = model.whisper_onnx_files() {
+            return Self::sherpa(model.label(), whisper_onnx::config(directory, files), 25);
         }
-        SpeechModel::WhisperTurbo => unreachable!("Whisper has an ONNX adapter configuration"),
+        match model {
+            SpeechModel::Tone => Ok(Self::Tone(load_tone(&directory.join("model.onnx"))?)),
+            SpeechModel::GigaAm | SpeechModel::Parakeet => {
+                let (config, seconds) = sherpa_config(model, directory);
+                Self::sherpa(model.label(), config, seconds)
+            }
+            SpeechModel::WhisperTurbo => unreachable!("Whisper has an ONNX configuration"),
+        }
+    }
+
+    fn sherpa(label: &str, config: OfflineRecognizerConfig, seconds: usize) -> Result<Self> {
+        let recognizer = OfflineRecognizer::create(&config)
+            .with_context(|| t!("model_load_failed", detail = label).into_owned())?;
+        Ok(Self::Sherpa(recognizer, seconds))
+    }
+
+    fn transcribe(
+        &mut self,
+        audio: &Audio,
+        range: (f64, f64),
+        report: &impl Fn(u8) -> Result<()>,
+    ) -> Result<String> {
+        match self {
+            Self::Sherpa(recognizer, seconds) => {
+                decode_sherpa(audio, recognizer, *seconds, range, report)
+            }
+            Self::Tone(session) => transcribe_tone(audio, session, range, report),
+        }
     }
 }
 
-fn transcribe_sherpa(
-    audio: &Audio,
-    model: SpeechModel,
-    directory: &Path,
-    range: (f64, f64),
-    report: &impl Fn(u8) -> Result<()>,
-) -> Result<String> {
+fn sherpa_config(model: SpeechModel, directory: &Path) -> (OfflineRecognizerConfig, usize) {
     let path = |name: &str| Some(directory.join(name).to_string_lossy().into_owned());
     let mut config = OfflineRecognizerConfig::default();
     config.model_config.num_threads = 2;
@@ -54,19 +74,16 @@ fn transcribe_sherpa(
         }
         SpeechModel::Tone | SpeechModel::WhisperTurbo => unreachable!(),
     };
-    decode_sherpa(audio, model.label(), config, segment_seconds, range, report)
+    (config, segment_seconds)
 }
 
 fn decode_sherpa(
     audio: &Audio,
-    model_label: &str,
-    config: OfflineRecognizerConfig,
+    recognizer: &OfflineRecognizer,
     segment_seconds: usize,
     range: (f64, f64),
     report: &impl Fn(u8) -> Result<()>,
 ) -> Result<String> {
-    let recognizer = OfflineRecognizer::create(&config)
-        .with_context(|| t!("model_load_failed", detail = model_label).into_owned())?;
     let mut phrases = Vec::new();
     let mut processed = 0;
     for chunk in audio.mono_range(16_000, 16_000 * segment_seconds, range.0, range.1) {
@@ -91,17 +108,7 @@ fn decode_sherpa(
     Ok(phrases.join(" "))
 }
 
-fn transcribe_tone(
-    audio: &Audio,
-    path: &Path,
-    range: (f64, f64),
-    report: &impl Fn(u8) -> Result<()>,
-) -> Result<String> {
-    // T-one takes 300 ms of signed PCM and carries an FP16 state across chunks.
-    const CHUNK: usize = 2400;
-    const STATE: usize = 219729;
-    const CLASSES: usize = 35;
-    let alphabet: Vec<_> = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя ".chars().collect();
+fn load_tone(path: &Path) -> Result<Session> {
     // sherpa-onnx already links ONNX Runtime. Use the same C API for T-one.
     let api = unsafe {
         let base = ort::sys::OrtGetApiBase()
@@ -112,10 +119,24 @@ fn transcribe_tone(
             .context(t!("ort_incompatible").into_owned())?
     };
     ort::set_api(api.clone());
-    let mut session = Session::builder()?
+    let session = Session::builder()?
         .with_intra_threads(2)
         .map_err(|error| anyhow::anyhow!("{error}"))?
         .commit_from_file(path)?;
+    Ok(session)
+}
+
+fn transcribe_tone(
+    audio: &Audio,
+    session: &mut Session,
+    range: (f64, f64),
+    report: &impl Fn(u8) -> Result<()>,
+) -> Result<String> {
+    // T-one takes 300 ms of signed PCM and carries an FP16 state across chunks.
+    const CHUNK: usize = 2400;
+    const STATE: usize = 219729;
+    const CLASSES: usize = 35;
+    let alphabet: Vec<_> = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя ".chars().collect();
     let mut state = vec![f16::ZERO; STATE];
     let mut previous = None;
     let mut text = String::new();
@@ -178,6 +199,9 @@ pub fn transcribe_speakers(
     segments: &[sherpa_onnx::OfflineSpeakerDiarizationSegment],
     report: &impl Fn(u8) -> Result<()>,
 ) -> Result<Vec<TranscriptTurn>> {
+    report(0)?;
+    let mut recognizer = Recognizer::load(model, directory)?;
+    report(0)?;
     let duration = audio.duration();
     let mut turns: Vec<_> = Vec::new();
     for segment in segments {
@@ -196,7 +220,7 @@ pub fn transcribe_speakers(
         }
     }
     if turns.is_empty() {
-        let text = transcribe(audio, model, directory, (0., duration), report)?;
+        let text = recognizer.transcribe(audio, (0., duration), report)?;
         return Ok(vec![TranscriptTurn {
             start: 0.,
             end: duration,
@@ -210,7 +234,7 @@ pub fn transcribe_speakers(
     let mut lines = Vec::new();
     for (speaker, start, end) in turns {
         report((processed * 100. / total) as u8)?;
-        let text = transcribe(audio, model, directory, (start, end), &|value| {
+        let text = recognizer.transcribe(audio, (start, end), &|value| {
             report(
                 ((processed + (end - start) * f64::from(value) / 100.) * 100. / total).min(99.)
                     as u8,

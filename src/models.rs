@@ -1,3 +1,4 @@
+mod updates;
 use anyhow::{Context, Result, ensure};
 use rust_i18n::t;
 use sha2::{Digest, Sha256};
@@ -13,10 +14,10 @@ pub enum SpeechModel {
     WhisperTurbo,
 }
 
-struct Asset {
-    name: &'static str,
+struct Asset<'a> {
+    name: &'a str,
     size: u64,
-    sha256: &'static str,
+    sha256: &'a str,
 }
 
 const INSTALL_RECEIPT: &str = ".s2t-installed";
@@ -24,7 +25,7 @@ const INSTALL_RECEIPT: &str = ".s2t-installed";
 struct Source {
     repo: &'static str,
     revision: &'static str,
-    assets: &'static [Asset],
+    assets: &'static [Asset<'static>],
 }
 
 pub(crate) struct WhisperOnnxFiles {
@@ -67,6 +68,10 @@ impl SpeechModel {
         }
     }
 
+    pub fn check_updates(self, cache: &Path) -> Result<()> {
+        updates::check(self, cache)
+    }
+
     pub fn repository(self) -> &'static str {
         self.source().repo
     }
@@ -81,6 +86,7 @@ impl SpeechModel {
     }
 
     pub fn delete_cached(self, cache: &Path) -> std::io::Result<()> {
+        updates::remove_active(self, cache)?;
         let source = self.source();
         let directories = source
             .previous_installations(cache)
@@ -194,6 +200,9 @@ impl SpeechModel {
 
     pub fn cached_directory(self, cache: &Path) -> Option<PathBuf> {
         let source = self.source();
+        if let Some(directory) = updates::active(self, cache) {
+            return Some(directory);
+        }
         let directory = source.cache_directory(cache);
         source
             .assets
@@ -204,6 +213,9 @@ impl SpeechModel {
     }
 
     pub fn needs_update(self, cache: &Path) -> bool {
+        if updates::available(self, cache) {
+            return true;
+        }
         let source = self.source();
         let current = source.cache_directory(cache);
         !source.assets.iter().all(|asset| asset.is_cached(&current))
@@ -211,6 +223,9 @@ impl SpeechModel {
     }
 
     pub fn prepare(self, cache: &Path, report: impl Fn(u64, u64)) -> Result<PathBuf> {
+        if updates::available(self, cache) {
+            return updates::install(self, cache, report);
+        }
         let source = self.source();
         let directory = source.cache_directory(cache);
         let missing: Vec<_> = source
@@ -293,7 +308,7 @@ impl Source {
     }
 }
 
-impl Asset {
+impl Asset<'_> {
     fn is_cached(&self, directory: &Path) -> bool {
         directory
             .join(self.name)

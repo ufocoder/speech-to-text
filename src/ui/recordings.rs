@@ -47,8 +47,20 @@ impl Recorder {
             .px_3()
             .py_2()
             .bg(cx.theme().muted)
+            .font_semibold()
+            .text_color(cx.theme().foreground)
+            .border_b_1()
+            .border_color(border)
+            .py_3()
             .child(div().flex_1().child(t!("file").into_owned()))
-            .child(div().w(px(180.)).child(t!("actions").into_owned()));
+            .child(
+                div()
+                    .w(px(180.))
+                    .border_l_1()
+                    .border_color(border)
+                    .pl_3()
+                    .child(t!("actions").into_owned()),
+            );
         let rows = match recordings {
             Ok(paths) if paths.is_empty() => div()
                 .p_3()
@@ -111,8 +123,10 @@ impl Recorder {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .border_t_1()
-                        .border_color(border)
+                        .when(index > 0, |row| {
+                            row.border_t_1()
+                                .border_color(super::theme::row_border(cx.theme()))
+                        })
                         .px_3()
                         .py_2()
                         .child(
@@ -131,6 +145,9 @@ impl Recorder {
                         .child(
                             div()
                                 .w(px(180.))
+                                .border_l_1()
+                                .border_color(super::theme::row_border(cx.theme()))
+                                .pl_3()
                                 .flex_shrink_0()
                                 .flex()
                                 .gap_2()
