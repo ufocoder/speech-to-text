@@ -14,6 +14,11 @@ impl Recorder {
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
+        let position = self
+            .player
+            .as_ref()
+            .map_or(self.playback_position, crate::audio::Player::position);
+        let playing = self.player.as_ref().is_some_and(|player| player.playing);
         let font_size = f32::from(self.transcript_font_size);
         let scale = font_size / 16.;
         let label_size = font_size * 0.8;
@@ -52,6 +57,14 @@ impl Recorder {
                             .items_start()
                             .gap_2()
                             .py_1()
+                            .rounded(px(9. * scale))
+                            .when(
+                                self.highlight_speech
+                                    && playing
+                                    && position >= turn.start
+                                    && position < turn.end,
+                                |row| row.bg(theme.primary.opacity(0.35)),
+                            )
                             .child(
                                 div()
                                     .flex()

@@ -167,3 +167,5 @@ supported_audio_formats: "Поддерживаемые форматы: WAV, MP3,
 unsupported_audio_file: "Формат файла не поддерживается. Выберите WAV, MP3, FLAC, Ogg Vorbis или M4A (AAC/ALAC)."
 
 model_update_available: "Доступно обновление"
+
+highlight_speech: "Подсвечивать речь"

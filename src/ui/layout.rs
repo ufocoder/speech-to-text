@@ -469,6 +469,26 @@ impl Recorder {
                                                     .items_center()
                                                     .gap_2()
                                                     .child(
+                                                        Button::new("highlight-speech")
+                                                            .when(self.highlight_speech, |button| {
+                                                                button.primary()
+                                                            })
+                                                            .when(
+                                                                !self.highlight_speech,
+                                                                |button| button.outline(),
+                                                            )
+                                                            .label(
+                                                                t!("highlight_speech").into_owned(),
+                                                            )
+                                                            .on_click(cx.listener(
+                                                                |this, _, _, cx| {
+                                                                    this.highlight_speech =
+                                                                        !this.highlight_speech;
+                                                                    cx.notify();
+                                                                },
+                                                            )),
+                                                    )
+                                                    .child(
                                                         Button::new("include-speakers")
                                                             .when(self.include_speakers, |button| {
                                                                 button.primary()

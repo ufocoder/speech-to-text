@@ -167,3 +167,5 @@ supported_audio_formats: "Supported formats: WAV, MP3, FLAC, Ogg Vorbis, M4A (AA
 unsupported_audio_file: "Unsupported audio file. Choose WAV, MP3, FLAC, Ogg Vorbis, or M4A (AAC/ALAC)."
 
 model_update_available: "Update available"
+
+highlight_speech: "Highlight speech"
