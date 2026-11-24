@@ -51,7 +51,30 @@ jobs:
         env:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
         run: test -n "$ARTIFACT_ID"
-      - uses: actions/deploy-pages@v4
+      - name: Deploy uploaded Pages artifact
+        uses: actions/github-script@v7
         id: deploy
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
         with:
-          artifact_name: github-pages
+          script: |
+            const idToken = await core.getIDToken();
+            const {data: deployment} = await github.request('POST /repos/{owner}/{repo}/pages/deployments', {
+              ...context.repo,
+              artifact_id: Number(process.env.ARTIFACT_ID),
+              pages_build_version: context.sha,
+              oidc_token: idToken
+            });
+            core.setOutput('page_url', deployment.page_url);
+            for (let attempt = 0; attempt < 120; attempt++) {
+              const {data: status} = await github.request('GET /repos/{owner}/{repo}/pages/deployments/{deployment_id}', {
+                ...context.repo,
+                deployment_id: deployment.id
+              });
+              if (status.status === 'succeed') return;
+              if (['errored', 'canceled', 'failed'].includes(status.status)) {
+                throw new Error('Pages deployment failed: ' + JSON.stringify(status));
+              }
+              await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+            throw new Error('Pages deployment timed out');
