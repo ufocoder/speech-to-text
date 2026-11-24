@@ -1,3 +1,5 @@
+#[path = "cache.rs"]
+mod cache;
 use anyhow::{Context, Result, bail};
 use rust_i18n::t;
 use std::fs::File;
@@ -18,6 +20,30 @@ pub struct Audio {
 
 impl Audio {
     pub fn load(path: &Path, report: impl Fn(u8) -> Result<()>) -> Result<Self> {
+        report(0)?;
+        let fingerprint = |path: &Path| {
+            std::fs::metadata(path)
+                .ok()
+                .and_then(|meta| Some((meta.len(), meta.modified().ok()?)))
+        };
+        let before = fingerprint(path);
+        let key = cache::key(path, &report).ok();
+        if let Some(cached) = key.as_ref().and_then(|key| cache::load(key).ok()) {
+            report(100)?;
+            return Ok(cached);
+        }
+        let audio = Self::decode(path, &report)?;
+        report(99)?;
+        if before.is_some() && before == fingerprint(path) {
+            if let Some(key) = key {
+                let _ = cache::store(&key, &audio);
+            }
+        }
+        report(100)?;
+        Ok(audio)
+    }
+
+    fn decode(path: &Path, report: &impl Fn(u8) -> Result<()>) -> Result<Self> {
         let source = MediaSourceStream::new(Box::new(File::open(path)?), Default::default());
         let mut format = symphonia::default::get_probe()
             .format(

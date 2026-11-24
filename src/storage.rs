@@ -80,6 +80,10 @@ pub fn saved_recordings() -> std::io::Result<Vec<SavedRecording>> {
     Ok(files)
 }
 
+pub fn audio_cache() -> PathBuf {
+    app_data_dir().join(".audio-cache")
+}
+
 pub fn model_cache() -> PathBuf {
     std::env::var_os("SPEECH_MODEL_CACHE")
         .map(PathBuf::from)
