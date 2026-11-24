@@ -212,6 +212,14 @@ impl SpeechModel {
             .or_else(|| source.previous_installations(cache).next())
     }
 
+    pub fn rollback(self, cache: &Path, validate: impl FnOnce(&Path) -> Result<()>) -> Result<()> {
+        updates::rollback(self, cache, validate)
+    }
+
+    pub fn has_updated_revision(self, cache: &Path) -> bool {
+        updates::active(self, cache).is_some()
+    }
+
     pub fn needs_update(self, cache: &Path) -> bool {
         if updates::available(self, cache) {
             return true;

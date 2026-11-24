@@ -190,6 +190,12 @@ pub(super) fn install(
         completed += asset.size;
     }
     validate(&directory)?;
+    let previous_path = cache.join(format!("{}.previous.json", model.id()));
+    if let Some(previous) = read(model, cache, true) {
+        let mut file = tempfile::NamedTempFile::new_in(cache)?;
+        serde_json::to_writer(&mut file, &previous)?;
+        file.persist(&previous_path)?;
+    }
     save(model, cache, true, &manifest)?;
     Ok(directory)
 }
@@ -231,6 +237,51 @@ mod tests {
         save(model, cache.path(), false, &manifest)?;
         assert!(available(model, cache.path()));
         assert!(active(model, cache.path()).is_none());
+        Ok(())
+    }
+}
+
+pub(super) fn rollback(
+    model: SpeechModel,
+    cache: &Path,
+    validate: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
+    let previous = cache.join(format!("{}.previous.json", model.id()));
+    if previous.is_file() {
+        let manifest: Manifest = serde_json::from_reader(std::fs::File::open(&previous)?)?;
+        let directory = directory(model, cache, &manifest);
+        validate(&directory)?;
+        save(model, cache, true, &manifest)?;
+        std::fs::remove_file(previous)?;
+    } else {
+        let pinned = model.source().cache_directory(cache);
+        validate(&pinned)?;
+        let path = manifest_path(model, cache, true);
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod rollback_tests {
+    use super::*;
+    #[test]
+    fn failed_validation_preserves_active_revision() -> Result<()> {
+        let cache = tempfile::tempdir()?;
+        let model = SpeechModel::Tone;
+        let manifest = Manifest {
+            revision: "a".repeat(40),
+            assets: vec![],
+        };
+        save(model, cache.path(), true, &manifest)?;
+        let result = rollback(model, cache.path(), |_| anyhow::bail!("Incompatible model"));
+        assert!(result.is_err());
+        assert_eq!(
+            read(model, cache.path(), true).unwrap().revision,
+            manifest.revision
+        );
         Ok(())
     }
 }

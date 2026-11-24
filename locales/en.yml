@@ -169,3 +169,8 @@ unsupported_audio_file: "Unsupported audio file. Choose WAV, MP3, FLAC, Ogg Vorb
 model_update_available: "Update available"
 
 highlight_speech: "Highlight speech"
+
+audio_cache_size: "Prepared audio cache: %{size} MB · limit 2 GB"
+clear_audio_cache: "Clear cache"
+
+rollback_model: "Revert model update"

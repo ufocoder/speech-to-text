@@ -169,3 +169,8 @@ unsupported_audio_file: "Формат файла не поддерживаетс
 model_update_available: "Доступно обновление"
 
 highlight_speech: "Подсвечивать речь"
+
+audio_cache_size: "Кэш аудио: %{size} МБ · лимит 2 ГБ"
+clear_audio_cache: "Очистить кэш"
+
+rollback_model: "Откатить обновление модели"

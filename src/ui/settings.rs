@@ -40,6 +40,7 @@ impl Recorder {
         if !self.settings_open {
             self.settings_open = true;
             self.refresh_model_update_dates(cx);
+            self.audio_cache_bytes = crate::storage::audio_cache_size().unwrap_or_default();
         }
         cx.notify();
     }
@@ -106,6 +107,24 @@ impl Recorder {
                                 self.language_menu(view),
                             )),
                     )
+                    .child(setting_row(
+                        t!(
+                            "audio_cache_size",
+                            size = self.audio_cache_bytes / 1_000_000
+                        )
+                        .into_owned(),
+                        Button::new("clear-audio-cache")
+                            .label(t!("clear_audio_cache").into_owned())
+                            .disabled(self.audio_busy() || self.recording.is_some())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Err(error) = crate::storage::clear_audio_cache() {
+                                    this.settings_error = Some(Message::Error(error.to_string()));
+                                }
+                                this.audio_cache_bytes =
+                                    crate::storage::audio_cache_size().unwrap_or_default();
+                                cx.notify();
+                            })),
+                    ))
                     .child(self.model_settings(cx))
                     .child(self.speaker_model_settings(cx)),
             )
@@ -191,6 +210,7 @@ impl Recorder {
         let active = self.model == model;
         let downloading = self.model_download.model == Some(model);
         let update_available = cached && self.available_model_updates.contains(&model);
+        let can_rollback = model.has_updated_revision(&model_cache());
         let blocked = self.model_actions_blocked();
         let view = cx.entity().downgrade();
         let muted = cx.theme().muted_foreground;
@@ -265,6 +285,7 @@ impl Recorder {
                     let delete_view = view.clone();
                     let download_view = view.clone();
                     let update_view = view.clone();
+                    let rollback_view = view.clone();
                     menu.item(
                         PopupMenuItem::new(t!("activate_model").into_owned())
                             .disabled(active)
@@ -277,6 +298,30 @@ impl Recorder {
                                 });
                             }),
                     )
+                    .when(can_rollback, |menu| {
+                        menu.item(
+                            PopupMenuItem::new(t!("rollback_model").into_owned()).on_click(
+                                move |_, _, cx| {
+                                    let _ = rollback_view.update(cx, |this, cx| {
+                                        if !this.model_actions_blocked() {
+                                            if let Err(error) =
+                                                model.rollback(&model_cache(), |directory| {
+                                                    crate::recognition::validate_model(
+                                                        model, directory,
+                                                    )
+                                                })
+                                            {
+                                                this.settings_error =
+                                                    Some(Message::Error(error.to_string()));
+                                            }
+                                            this.refresh_model_update_dates(cx);
+                                            cx.notify();
+                                        }
+                                    });
+                                },
+                            ),
+                        )
+                    })
                     .when(update_available, |menu| {
                         menu.item(
                             PopupMenuItem::new(t!("update_model").into_owned()).on_click(

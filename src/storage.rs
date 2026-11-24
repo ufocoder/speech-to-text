@@ -147,22 +147,59 @@ pub fn transcript_files(audio: &Path) -> BTreeMap<Option<String>, PathBuf> {
     files
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedTranscript {
+    format_version: u32,
+    model: String,
+    revision: Option<String>,
+    turns: Vec<crate::recognition::TranscriptTurn>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredTranscript {
+    Versioned(SavedTranscript),
+    Original(Vec<crate::recognition::TranscriptTurn>),
+}
+
 pub fn read_transcripts(audio: &Path) -> Transcripts {
-    transcript_files(audio)
-        .into_iter()
-        .filter_map(|(model, path)| {
-            let transcript = if path
+    read_transcripts_checked(audio).0
+}
+
+pub fn read_transcripts_checked(audio: &Path) -> (Transcripts, Vec<String>) {
+    let mut transcripts = Transcripts::new();
+    let mut errors = Vec::new();
+    for (model, path) in transcript_files(audio) {
+        let result = (|| -> anyhow::Result<Transcript> {
+            if path
                 .extension()
                 .is_some_and(|extension| extension == "json")
             {
-                let file = std::fs::File::open(path).ok()?;
-                Transcript::Structured(serde_json::from_reader(file).ok()?)
+                let stored: StoredTranscript =
+                    serde_json::from_reader(std::fs::File::open(&path)?)?;
+                let turns = match stored {
+                    StoredTranscript::Versioned(saved) => {
+                        anyhow::ensure!(
+                            saved.format_version == 1,
+                            "Unsupported transcript version"
+                        );
+                        saved.turns
+                    }
+                    StoredTranscript::Original(turns) => turns,
+                };
+                Ok(Transcript::Structured(turns))
             } else {
-                Transcript::Legacy(std::fs::read_to_string(path).ok()?)
-            };
-            Some((model, transcript))
-        })
-        .collect()
+                Ok(Transcript::Legacy(std::fs::read_to_string(&path)?))
+            }
+        })();
+        match result {
+            Ok(transcript) => {
+                transcripts.insert(model, transcript);
+            }
+            Err(error) => errors.push(format!("{}: {error}", path.display())),
+        }
+    }
+    (transcripts, errors)
 }
 
 pub fn save_transcript(
@@ -175,7 +212,20 @@ pub fn save_transcript(
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    serde_json::to_writer(&mut file, turns)?;
+    let saved = SavedTranscript {
+        format_version: 1,
+        model: model.id().into(),
+        revision: model
+            .cached_directory(&model_cache())
+            .and_then(|directory| {
+                directory
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            }),
+        turns: turns.to_vec(),
+    };
+    serde_json::to_writer(&mut file, &saved)?;
+    file.as_file().sync_all()?;
     file.persist(structured_path(audio, model))?;
     Ok(())
 }
@@ -291,4 +341,59 @@ pub fn save_default_speaker_model(model: crate::models::SpeakerModel) -> std::io
     })?;
     file.persist(directory.join(".speaker-model"))?;
     Ok(())
+}
+
+pub fn audio_cache_size() -> std::io::Result<u64> {
+    let entries = match std::fs::read_dir(audio_cache()) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    let mut size = 0;
+    for entry in entries {
+        let entry = entry?;
+        if entry
+            .path()
+            .extension()
+            .is_some_and(|extension| extension == "pcm")
+        {
+            size += entry.metadata()?.len();
+        }
+    }
+    Ok(size)
+}
+
+pub fn clear_audio_cache() -> std::io::Result<()> {
+    let directory = audio_cache();
+    if !directory.exists() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|extension| extension == "pcm") {
+            std::fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn reports_corruption_and_reads_original_json() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let audio = directory.path().join("sample.wav");
+        let path = structured_path(&audio, SpeechModel::Tone);
+        std::fs::write(&path, "broken json")?;
+        let (results, errors) = read_transcripts_checked(&audio);
+        assert!(results.is_empty());
+        assert_eq!(errors.len(), 1);
+        std::fs::write(&path, "[]")?;
+        let (results, errors) = read_transcripts_checked(&audio);
+        assert!(errors.is_empty());
+        assert_eq!(results.len(), 1);
+        Ok(())
+    }
 }

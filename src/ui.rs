@@ -107,6 +107,7 @@ pub(crate) struct Recorder {
     status: Message,
     language: Language,
     settings_open: bool,
+    audio_cache_bytes: u64,
     settings_error: Option<Message>,
     transcript: Entity<TextareaState>,
     transcript_view: TranscriptView,
@@ -173,6 +174,7 @@ impl Recorder {
             status: Message::Empty,
             language,
             settings_open: false,
+            audio_cache_bytes: 0,
             settings_error: None,
             transcript,
             transcript_view: TranscriptView::default(),
@@ -334,7 +336,11 @@ impl Recorder {
                 match result {
                     Ok(audio) => {
                         this.audio = Some(Arc::new(audio));
-                        this.transcripts = crate::storage::read_transcripts(&path);
+                        let (transcripts, errors) = crate::storage::read_transcripts_checked(&path);
+                        this.transcripts = transcripts;
+                        if !errors.is_empty() {
+                            this.playback.error = Some(Message::Error(errors.join("\n")));
+                        }
                         if let Some(results) = this.session_transcripts.get(&path) {
                             this.transcripts.extend(results.clone());
                         }

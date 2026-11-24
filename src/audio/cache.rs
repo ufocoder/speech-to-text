@@ -88,6 +88,9 @@ pub(super) fn load(path: &Path) -> Result<Audio> {
 }
 
 pub(super) fn store(path: &Path, audio: &Audio) -> Result<()> {
+    if audio.samples.len() > 2_000_000_000 {
+        return Ok(());
+    }
     let directory = path.parent().unwrap();
     std::fs::create_dir_all(directory)?;
     let mut file = tempfile::NamedTempFile::new_in(directory)?;
@@ -102,6 +105,7 @@ pub(super) fn store(path: &Path, audio: &Audio) -> Result<()> {
     file.write_all(&audio.samples)?;
     file.as_file().sync_all()?;
     file.persist(path)?;
+    trim(directory, path);
     Ok(())
 }
 
@@ -136,6 +140,81 @@ mod tests {
         drop(restored);
         File::options().write(true).open(&path)?.set_len(10)?;
         assert!(load(&path).is_err());
+        Ok(())
+    }
+}
+
+fn trim(directory: &Path, keep: &Path) {
+    const LIMIT: u64 = 2_000_000_000;
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let mut files: Vec<_> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension()?.to_str()? != "pcm" {
+                return None;
+            }
+            let meta = entry.metadata().ok()?;
+            Some((meta.modified().ok()?, path, meta.len()))
+        })
+        .collect();
+    let mut total: u64 = files.iter().map(|(_, _, bytes)| bytes).sum();
+    files.sort_by_key(|(modified, _, _)| *modified);
+    for (_, path, bytes) in files {
+        if total <= LIMIT {
+            break;
+        }
+        if path != keep && std::fs::remove_file(path).is_ok() {
+            total -= bytes;
+        }
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    #[test]
+    fn cancellation_stops_opening_before_decode() -> Result<()> {
+        let file = tempfile::NamedTempFile::new()?;
+        let result = Audio::load(file.path(), |_| anyhow::bail!("Cancelled"));
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "manual long audio benchmark"]
+    fn benchmark_long_audio_preparation() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let source = directory.path().join("long.wav");
+        let mut writer = hound::WavWriter::create(
+            &source,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )?;
+        for _ in 0..16_000 * 600 {
+            writer.write_sample(0_i16)?;
+        }
+        writer.finalize()?;
+        let started = std::time::Instant::now();
+        let audio = Audio::decode(&source, &|_| Ok(()))?;
+        let decoded = started.elapsed();
+        let path = directory.path().join("cache.pcm");
+        store(&path, &audio)?;
+        let started = std::time::Instant::now();
+        let restored = load(&path)?;
+        assert_eq!(restored.duration(), 600.);
+        println!(
+            "10-minute mono WAV: decode {:?}, cache open {:?}, PCM bytes {}",
+            decoded,
+            started.elapsed(),
+            restored.samples.len()
+        );
         Ok(())
     }
 }
