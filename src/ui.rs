@@ -7,6 +7,7 @@ mod recordings;
 mod settings;
 mod speakers;
 pub(crate) mod theme;
+mod transcript;
 
 use crate::{
     audio::{Audio, Player, Recording},

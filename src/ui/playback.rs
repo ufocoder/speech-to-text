@@ -183,7 +183,7 @@ impl Recorder {
                 div()
                     .flex()
                     .items_center()
-                    .gap_3()
+                    .gap_2()
                     .child(Button::new("playback").label(label).on_click(
                         cx.listener(|this, _, window, cx| this.toggle_playback(window, cx)),
                     ))

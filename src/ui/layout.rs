@@ -62,7 +62,7 @@ impl Recorder {
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap_1()
+                    .gap_2()
                     .child(
                         Button::new("home")
                             .label(t!("home").into_owned())
@@ -120,7 +120,7 @@ impl Recorder {
                 .flex_wrap()
                 .items_center()
                 .justify_center()
-                .gap_3()
+                .gap_2()
                 .child(record.danger())
                 .child(div().text_sm().child(t!("recording").into_owned()))
         } else {
@@ -294,7 +294,7 @@ impl Recorder {
                         .flex()
                         .flex_wrap()
                         .items_center()
-                        .gap_4()
+                        .gap_2()
                         .child(
                             Button::new("transcribe-audio")
                                 .primary()
@@ -331,7 +331,7 @@ impl Recorder {
                                                 .flex()
                                                 .flex_wrap()
                                                 .items_center()
-                                                .gap_4()
+                                                .gap_2()
                                                 .when_some(selected_model, |row, model| {
                                                     row.child(self.audio_model_menu(model, cx))
                                                 })
@@ -449,7 +449,7 @@ impl Recorder {
                                     .flex()
                                     .items_center()
                                     .flex_wrap()
-                                    .gap_4()
+                                    .gap_2()
                                     .child(
                                         div()
                                             .mr_auto()
@@ -467,7 +467,7 @@ impl Recorder {
                                                     .flex()
                                                     .flex_wrap()
                                                     .items_center()
-                                                    .gap_4()
+                                                    .gap_2()
                                                     .child(
                                                         Button::new("include-speakers")
                                                             .when(self.include_speakers, |button| {
@@ -624,6 +624,11 @@ impl Recorder {
                                 )
                             })
                             .when(has_text, |view| {
+                                if let Some(crate::storage::Transcript::Structured(turns)) =
+                                    self.transcripts.get(&self.selected_transcript)
+                                {
+                                    return view.child(self.transcript_rows(turns, cx));
+                                }
                                 view.child(
                                     div().flex_1().min_h_0().overflow_hidden().child(
                                         Textarea::new(&self.transcript)
